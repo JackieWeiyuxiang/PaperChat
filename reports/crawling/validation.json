@@ -1,0 +1,17 @@
+{
+  "records": 100,
+  "unique_ids": 100,
+  "all_titles_abstracts_authors_dates_present": true,
+  "all_in_cs_cl": true,
+  "all_in_date_range": true,
+  "all_text_fields_match": true,
+  "sha256_matches": true,
+  "request_start_gaps_seconds": [
+    4.313636,
+    4.215752,
+    5.266543
+  ],
+  "cached_replay_identical": true,
+  "cached_replay_network_requests": 0,
+  "cached_replay_pages": 4
+}

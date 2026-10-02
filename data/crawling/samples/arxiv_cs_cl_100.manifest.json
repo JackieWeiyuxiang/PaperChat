@@ -1,0 +1,134 @@
+{
+  "completed_at": "2026-10-02T17:00:27.532914+00:00",
+  "query": "cat:cs.CL AND submittedDate:[202501010000 TO 202610022359]",
+  "requested": 100,
+  "saved": 100,
+  "target_reached": true,
+  "total_matching_at_last_page": 45586,
+  "duplicates_removed": 0,
+  "invalid_records_dropped": 0,
+  "missing_title": 0,
+  "missing_abstract": 0,
+  "primary_categories": {
+    "cs.CL": 64,
+    "cs.AI": 12,
+    "cs.LG": 9,
+    "cs.CV": 4,
+    "cs.HC": 1,
+    "cs.SE": 2,
+    "cs.SD": 2,
+    "cs.IR": 3,
+    "cs.CR": 2,
+    "eess.AS": 1
+  },
+  "all_categories": {
+    "cs.CL": 100,
+    "cs.AI": 44,
+    "cs.CR": 4,
+    "cs.IR": 7,
+    "cs.LG": 25,
+    "cs.DB": 3,
+    "cs.CV": 5,
+    "cs.HC": 1,
+    "cs.SE": 3,
+    "cs.SD": 3,
+    "eess.AS": 3,
+    "cs.IT": 2,
+    "q-bio.QM": 1,
+    "physics.data-an": 1,
+    "stat.ML": 1,
+    "cs.ET": 1,
+    "cs.CY": 1
+  },
+  "published_range": [
+    "2026-10-01T02:39:52Z",
+    "2026-10-01T17:59:55Z"
+  ],
+  "abstract_words": {
+    "min": 96,
+    "mean": 195.6,
+    "max": 280
+  },
+  "elapsed_seconds": 14.828,
+  "transport": "curl",
+  "delay_seconds": 3.2,
+  "output_sha256": "1a67efc41ab134d7c2eee9462bb96cec5f324d935d8d0bc2515692a63e3745f3",
+  "pages": [
+    {
+      "url": "https://export.arxiv.org/api/query?search_query=cat%3Acs.CL+AND+submittedDate%3A%5B202501010000+TO+202610022359%5D&start=0&max_results=25&sortBy=submittedDate&sortOrder=descending",
+      "retrieved_at": "2026-10-02T17:00:13.821172+00:00",
+      "sha256": "4d02af9a97bb3dfe4b3124789d9725b570b0f1c380cdd673b7b439302a950aeb",
+      "cache_hit": false,
+      "raw_file": "data/crawling/raw/arxiv/337c7e44c01aac13c6e9119ecfb6ff75e8f534c15a6310ead17123c53d7c1e2e.xml",
+      "entries": 25,
+      "invalid_records": 0
+    },
+    {
+      "url": "https://export.arxiv.org/api/query?search_query=cat%3Acs.CL+AND+submittedDate%3A%5B202501010000+TO+202610022359%5D&start=25&max_results=25&sortBy=submittedDate&sortOrder=descending",
+      "retrieved_at": "2026-10-02T17:00:18.036247+00:00",
+      "sha256": "f7e4bf8e8d5a73246555ec09bfcd8edeb492e59853dd8162a6cacee78f1f0f10",
+      "cache_hit": false,
+      "raw_file": "data/crawling/raw/arxiv/10053555a47ce06c6f1fdf041e46f136fed8f30725cc76c40b08614671089e32.xml",
+      "entries": 25,
+      "invalid_records": 0
+    },
+    {
+      "url": "https://export.arxiv.org/api/query?search_query=cat%3Acs.CL+AND+submittedDate%3A%5B202501010000+TO+202610022359%5D&start=50&max_results=25&sortBy=submittedDate&sortOrder=descending",
+      "retrieved_at": "2026-10-02T17:00:23.302599+00:00",
+      "sha256": "a33ec6cc7d8170131afd1994769ebcd5e33724899f97b9919ac75a9a987cd3e2",
+      "cache_hit": false,
+      "raw_file": "data/crawling/raw/arxiv/4554691b2483936ab5cad51258aa3579c733d8a4b83bc73262a3a089696452b7.xml",
+      "entries": 25,
+      "invalid_records": 0
+    },
+    {
+      "url": "https://export.arxiv.org/api/query?search_query=cat%3Acs.CL+AND+submittedDate%3A%5B202501010000+TO+202610022359%5D&start=75&max_results=25&sortBy=submittedDate&sortOrder=descending",
+      "retrieved_at": "2026-10-02T17:00:27.525276+00:00",
+      "sha256": "37715123390febee18d88db439337dee9f46e022a599966062e73a2f8245f2a2",
+      "cache_hit": false,
+      "raw_file": "data/crawling/raw/arxiv/5e39f4b502df260ae6e2d1a3b3d305abcc5c09e4316f890e17e2a26f73b9816f.xml",
+      "entries": 25,
+      "invalid_records": 0
+    }
+  ],
+  "requests": [
+    {
+      "url": "https://export.arxiv.org/api/query?search_query=cat%3Acs.CL+AND+submittedDate%3A%5B202501010000+TO+202610022359%5D&start=0&max_results=25&sortBy=submittedDate&sortOrder=descending",
+      "requested_at": "2026-10-02T17:00:12.709405+00:00",
+      "attempt": 1,
+      "transport": "curl",
+      "status": 200,
+      "bytes": 64682,
+      "elapsed_seconds": 1.109
+    },
+    {
+      "url": "https://export.arxiv.org/api/query?search_query=cat%3Acs.CL+AND+submittedDate%3A%5B202501010000+TO+202610022359%5D&start=25&max_results=25&sortBy=submittedDate&sortOrder=descending",
+      "requested_at": "2026-10-02T17:00:17.023041+00:00",
+      "attempt": 1,
+      "transport": "curl",
+      "status": 200,
+      "bytes": 61309,
+      "elapsed_seconds": 1.016
+    },
+    {
+      "url": "https://export.arxiv.org/api/query?search_query=cat%3Acs.CL+AND+submittedDate%3A%5B202501010000+TO+202610022359%5D&start=50&max_results=25&sortBy=submittedDate&sortOrder=descending",
+      "requested_at": "2026-10-02T17:00:21.238793+00:00",
+      "attempt": 1,
+      "transport": "curl",
+      "status": 200,
+      "bytes": 60307,
+      "elapsed_seconds": 2.062
+    },
+    {
+      "url": "https://export.arxiv.org/api/query?search_query=cat%3Acs.CL+AND+submittedDate%3A%5B202501010000+TO+202610022359%5D&start=75&max_results=25&sortBy=submittedDate&sortOrder=descending",
+      "requested_at": "2026-10-02T17:00:26.505336+00:00",
+      "attempt": 1,
+      "transport": "curl",
+      "status": 200,
+      "bytes": 62009,
+      "elapsed_seconds": 1.016
+    }
+  ],
+  "relative_paths_base": "project_root",
+  "original_manifest": "reports/crawling/first_success_manifest.json"
+}

@@ -1,0 +1,7 @@
+{
+  "source": "arxiv_api",
+  "url": "https://export.arxiv.org/api/query?search_query=cat%3Acs.CL&start=0&max_results=5&sortBy=submittedDate&sortOrder=descending",
+  "checked_at": "2026-10-02T16:50:40.390875+00:00",
+  "error": "URLError: <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1010)>",
+  "elapsed_seconds": 0.75
+}

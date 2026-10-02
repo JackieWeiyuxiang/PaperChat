@@ -1,0 +1,20 @@
+{
+  "source": "arxiv_oai_pmh",
+  "checked_at": "2026-10-02T17:03:39.218113+00:00",
+  "url": "https://oaipmh.arxiv.org/oai?verb=GetRecord&identifier=oai%3AarXiv.org%3A1706.03762&metadataPrefix=arXiv",
+  "test_scope": "One GetRecord; bulk ListRecords/resumptionToken not tested",
+  "success": true,
+  "title": "Attention Is All You Need",
+  "abstract_characters": 1136,
+  "requests": [
+    {
+      "url": "https://oaipmh.arxiv.org/oai?verb=GetRecord&identifier=oai%3AarXiv.org%3A1706.03762&metadataPrefix=arXiv",
+      "requested_at": "2026-10-02T17:03:39.218113+00:00",
+      "attempt": 1,
+      "transport": "curl",
+      "status": 200,
+      "bytes": 3807,
+      "elapsed_seconds": 0.813
+    }
+  ]
+}

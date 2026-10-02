@@ -8,3 +8,7 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Crawling: downloaded response caches and generated handoff archives
+/data/crawling/raw/
+/artifacts/crawling/

@@ -1,0 +1,4 @@
+# Preserve checksummed samples and original HTTP/XML capture bytes.
+data/crawling/samples/*.jsonl -text whitespace=cr-at-eol
+reports/crawling/initial_raw/* -text -whitespace
+reports/crawling/oai_sample.xml -text -whitespace
