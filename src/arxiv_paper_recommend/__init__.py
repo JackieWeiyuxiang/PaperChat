@@ -1,2 +1,1 @@
-def main() -> None:
-    print("Hello from arxiv-paper-recommend!")
+"""Paper preparation and retrieval modules."""
