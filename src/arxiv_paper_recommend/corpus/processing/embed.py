@@ -1,4 +1,4 @@
-"""Build and load the BGE-M3 dense vector library for title/abstract retrieval."""
+"""Build and load the Qwen3-Embedding-0.6B library for title/abstract retrieval."""
 
 import argparse
 import hashlib
@@ -12,9 +12,10 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 
 ROOT = Path(__file__).resolve().parents[4]
-MODEL = "BAAI/bge-m3"
-REVISION = "5617a9f61b028005a4858fdac845db406aefb181"
-MAX_LENGTH = 8192
+MODEL = "Qwen/Qwen3-Embedding-0.6B"
+REVISION = "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3"
+MAX_LENGTH = 32768
+QUERY_INSTRUCTION = "Given a research question, retrieve scientific papers whose core research addresses the question."
 
 
 def read_papers(path):
@@ -37,20 +38,21 @@ def corpus_fingerprint(papers):
 
 
 def load_encoder(revision, device=None):
-    model = SentenceTransformer(MODEL, revision=revision, device=device, trust_remote_code=False)
+    model = SentenceTransformer(MODEL, revision=revision, device=device, trust_remote_code=False,
+                                tokenizer_kwargs={"padding_side": "left"})
     model.max_seq_length = MAX_LENGTH
     return model
 
 
 def encode_texts(model, texts, batch_size=8, show_progress=False):
-    """Use the model's CLS pooling and normalized float32 output; never truncate."""
+    """Encode documents without instructions using last-token pooling; never truncate."""
     if batch_size < 1 or not texts or any(not t.strip() for t in texts):
         raise ValueError("Provide nonempty texts and a positive batch size.")
     for start in range(0, len(texts), 64):
         tokens = model.tokenizer(texts[start:start + 64], truncation=False, padding=False)["input_ids"]
         if any(len(row) > MAX_LENGTH for row in tokens):
             raise ValueError(f"Input exceeds {MAX_LENGTH} tokens; no text was silently truncated.")
-    vectors = model.encode(texts, batch_size=batch_size, normalize_embeddings=True,
+    vectors = model.encode(texts, prompt="", batch_size=batch_size, normalize_embeddings=True,
                            convert_to_numpy=True, show_progress_bar=show_progress)
     vectors = np.asarray(vectors, dtype=np.float32)
     if vectors.shape != (len(texts), 1024) or not np.isfinite(vectors).all():
@@ -58,6 +60,13 @@ def encode_texts(model, texts, batch_size=8, show_progress=False):
     if not np.allclose(np.linalg.norm(vectors, axis=1), 1, atol=1e-5):
         raise ValueError("Embeddings are not unit normalized.")
     return vectors
+
+
+def encode_queries(model, queries, instruction=QUERY_INSTRUCTION, batch_size=8):
+    """Apply Qwen's query instruction format; documents remain unprefixed."""
+    if not instruction.strip() or not queries or any(not q.strip() for q in queries):
+        raise ValueError("Provide a nonempty instruction and nonempty queries.")
+    return encode_texts(model, [f"Instruct: {instruction}\nQuery: {q}" for q in queries], batch_size)
 
 
 def build(input_path, output_path, revision=REVISION, device=None, batch_size=8):
@@ -74,7 +83,9 @@ def build(input_path, output_path, revision=REVISION, device=None, batch_size=8)
     metadata = {
         "format_version": 1, "model": MODEL, "revision": revision,
         "count": len(papers), "dimension": 1024, "dtype": "float32",
-        "normalized": True, "similarity": "cosine", "pooling": "CLS",
+        "normalized": True, "similarity": "cosine", "pooling": "last_token",
+        "query_instruction": QUERY_INSTRUCTION, "document_prompt": "",
+        "query_template": "Instruct: {instruction}\nQuery: {query}",
         "input": "title + complete abstract (text)", "max_length": MAX_LENGTH,
         "corpus_sha256": corpus_fingerprint(papers),
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -103,6 +114,9 @@ def load_library(path, corpus_path=None):
         metadata = json.loads(str(data["metadata"].item()))
     if metadata["format_version"] != 1 or metadata["model"] != MODEL:
         raise ValueError("Unsupported vector library.")
+    if (metadata.get("pooling") != "last_token" or not metadata.get("query_instruction")
+            or metadata.get("document_prompt") != "" or metadata.get("normalized") is not True):
+        raise ValueError("Unsupported encoding settings.")
     if vectors.shape != (metadata["count"], 1024) or vectors.dtype != np.float32:
         raise ValueError("Invalid vector dimensions or dtype.")
     if any(ids.shape != (len(vectors),) or len(set(ids)) != len(vectors) for ids in (doc_ids, chunk_ids)):

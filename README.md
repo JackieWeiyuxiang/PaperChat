@@ -11,7 +11,7 @@
 | [sources.json](data/sources.json) | 数据来源、检索范围、采集时间与抽样记录。 |
 | [raw_papers.jsonl](data/raw_papers.jsonl) | 原始文献，含标题、完整摘要、作者、关键词与来源链接。 |
 | [papers.jsonl](data/papers.jsonl) | 清洗、去重后的文献，每行含 `doc_id`、`chunk_id`、检索用 `text` 和论文信息。 |
-| [vectors.npz](data/vectors.npz) | BGE-M3 稠密向量库，包含向量、论文 ID 对应关系与模型版本。 |
+| [vectors.npz](data/vectors.npz) | Qwen3-Embedding-0.6B 稠密向量库，包含向量、论文 ID 对应关系、模型版本与查询指令。 |
 | [statistics.md](data/statistics.md) | 主题、年份、分类、文本长度、关键词覆盖及数量统计。 |
 | [example_queries.json](data/example_queries.json) | 20 个研究问题示例，覆盖六个主题，含中英文检索句。 |
 
