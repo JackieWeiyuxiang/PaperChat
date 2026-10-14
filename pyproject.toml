@@ -7,7 +7,10 @@ authors = [
     { name = "CIA", email = "2ndaryuan@gmail.com" }
 ]
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+    "faiss-cpu>=1.15.1",
+    "numpy>=2.5.4",
+]
 
 [project.scripts]
 arxiv-paper-recommend = "arxiv_paper_recommend:main"
