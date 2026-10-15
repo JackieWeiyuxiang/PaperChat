@@ -1,3 +1,5 @@
+"""Shared result records for all retrieval methods."""
+
 from dataclasses import dataclass
 
 

@@ -8,3 +8,8 @@ wheels/
 
 # Virtual environments
 .venv
+experiment
+data/statistics.md
+
+# Local environment secrets
+.env
