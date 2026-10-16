@@ -2,6 +2,8 @@
 
 安装与快速开始见 [README](../README.md)，数据准备见[数据与构建](data.md)，模型参数见[向量化](vectorization.md)。
 
+本文描述当前工作区的检索实现。课程最终目标还包括读取检索证据的推荐生成、引用和网页展示，这些部分尚未实现，见[项目目标与进度](project.md)。评估设计及缺口见[实验与评估](evaluation.md)；本文的算法说明不代表已验证某方法优于其他方法。
+
 ## 公开入口
 
 ```python
@@ -9,9 +11,9 @@ from arxiv_paper_recommend.retrieval import SearchEngine, SearchResult
 from arxiv_paper_recommend.retrieval.sparse import BM25Retriever
 from arxiv_paper_recommend.retrieval.dense import HNSWRetriever
 from arxiv_paper_recommend.retrieval.hybrid import (
-    CandidateFusionRetriever,
-    SemanticWeightedRetriever,
-    SequentialRetriever,
+    HRRFRetriever,
+    SemanticRRFRetriever,
+    SDCascadeRetriever,
 )
 from arxiv_paper_recommend.retrieval.query import QueryGenerator
 ```
@@ -31,6 +33,8 @@ from arxiv_paper_recommend.retrieval.query import QueryGenerator
 | `score` | `float \| None` | 当前方法的分数，默认值为 `None` |
 
 BM25 原始分数越小越相关；内积、RRF 和加权 RRF 越大越相关。不同方法的分数不具有统一尺度。归一化向量的内积对应余弦相似度。
+
+结果不含作者、日期、来源 URL、推荐理由或引用证据；部分元数据仅在原始 JSONL 中保留。最终生成模块仍需消费这些检索结果并建立理由与来源的对应关系。
 
 引擎重排和混合检索创建新的结果对象，不改写底层检索器返回的对象。公共排序逻辑将 `None` 放在末尾，同分按内部 ID 升序；底层 BM25、HNSW 搜索分别保留 SQLite、FAISS 的返回顺序。
 
@@ -91,7 +95,7 @@ search(terms, queries, score_query, limit=20) -> list[SearchResult]
 `terms` 遵循 BM25 规则；`queries` 为非空白字符串或非空字符串集合，`score_query` 为非空白字符串；最终 `limit` 为 1～100 的整数。
 
 ```python
-with CandidateFusionRetriever() as retriever:
+with HRRFRetriever() as retriever:
     results = retriever.search(
         terms=["retrieval augmented generation", "reasoning"],
         queries={
@@ -105,7 +109,9 @@ with CandidateFusionRetriever() as retriever:
 
 将类名替换为另外两种检索器即可使用相同输入。三种方法的每次搜索都使用独立评分缓存，只补齐缺失的查询／论文组合；已缓存的 `None` 不重复评分。
 
-### CandidateFusionRetriever
+### HRRFRetriever
+
+全名为 **Hierarchical Reciprocal Rank Fusion**（分层倒数排名融合），代码类名为 `HRRFRetriever`。
 
 1. 稀疏侧召回最多 limit 篇；稠密侧每查询召回最多 limit 篇，合并后按评分查询相似度保留前 limit 篇。
 2. 两路各自在完整候选列表内，按 BM25 升序和评分查询相似度降序分别排名，通过等权 RRF 得到该路新排序。
@@ -119,7 +125,9 @@ RRF(d) = Σ 1 / (60 + rank(d))
 
 缺席某路贡献为 0，交集论文获得两路贡献。若两路新排序为 `[A, B]`、`[B, C]` 且 limit=2，在 A 的 ID 小于 C 时返回 `[B, A]`。最终 `score` 为最终 RRF。
 
-### SemanticWeightedRetriever
+### SemanticRRFRetriever
+
+全名为 **Semantic-Weighted Reciprocal Rank Fusion**（语义加权倒数排名融合），代码类名为 `SemanticRRFRetriever`。此处按每篇论文的语义相似度加权。
 
 稀疏侧召回最多 `ceil(limit / 2)` 篇；稠密侧各查询召回后合并，按评分查询相似度保留前 limit 篇。
 
@@ -131,7 +139,9 @@ score(d) = RRF(d) × (cos(score_query, d) + 1)
 
 相似度为 `None` 时权重为 0。直接从候选并集中按加权分数取前 limit 篇，不预留交集、不重新计算名次；零分候选仍参与截取。`score` 为语义加权 RRF。
 
-### SequentialRetriever
+### SDCascadeRetriever
+
+全名为 **Sparse-to-Dense Cascade**（稀疏到稠密级联检索），代码类名为 `SDCascadeRetriever`。
 
 BM25 先召回最多 `limit × 60` 篇，再仅对这些候选计算各语义查询的内积，每查询取前 limit 篇并合并去重；最后按 `score_query` 重排，返回前 limit 篇。
 
@@ -151,9 +161,9 @@ search(request, method, limit=20, *, max_terms=12, max_queries=4) -> list[Search
 | --- | --- | --- | --- |
 | `BM25` | max_terms：5～20 | 正整数 | 1 次关键词生成 |
 | `HNSW` | max_queries：正整数 | 正整数 | 查询生成 + 单条整合评分查询；无候选时仅 1 次 |
-| `HYBRID_CANDIDATE_FUSION` | max_terms：5～20；max_queries：正整数 | 1～100 | 关键词、查询、评分查询各 1 次 |
-| `HYBRID_SEMANTIC_WEIGHTED` | 同上 | 1～100 | 同上 |
-| `HYBRID_SEQUENTIAL` | 同上 | 1～100 | 同上 |
+| `HRRF` | max_terms：5～20；max_queries：正整数 | 1～100 | 关键词、查询、评分查询各 1 次 |
+| `SEMANTIC_RRF` | 同上 | 1～100 | 同上 |
+| `SD_CASCADE` | 同上 | 1～100 | 同上 |
 
 BM25 保留原始结果顺序和分数。HNSW 多查询各召回最多 limit 篇，合并去重后，用额外生成的整合查询评分重排，再截取 limit 篇。三种混合方法交给对应独立检索器执行。
 
@@ -173,6 +183,18 @@ handler(request: str, limit: int, *, max_terms: int, max_queries: int) -> list[S
 
 每个方法调用一次 LLM，通过 Pydantic 结构化模型限制返回数量为 1 至指定上限。模型定义按生成类型与上限缓存，最多 32 项；LLM 响应不缓存。独立生成器不限制 max_terms 的上界，接入 BM25 的引擎路径限制为 20。
 
+配置来自项目根目录 `.env`，或在进程中预先设置的同名环境变量：
+
+| 配置 | 用途 |
+| --- | --- |
+| `LLM_API_KEY` | LLM 服务的 API 凭证 |
+| `LLM_API_URL` | 传入客户端的 `base_url`；需为支持当前接口的服务地址 |
+| `LLM_MODEL` | 非空模型名称，初始化时校验 |
+
+当前代码使用 `OpenAI(...).responses.parse`，传入 Pydantic `text_format`、`reasoning={"effort": "none"}` 和 `temperature=0`。服务和模型必须支持这一接口与参数组合，不能仅凭“兼容 OpenAI”就假定可用。源码没有自动改用 Chat Completions 或本地生成服务的逻辑。
+
+生成器只接收研究请求，不接收已检索论文。其输出是英文检索输入，不是推荐理由；也不执行日期、分类等元数据硬过滤。自然语言约束会保留在生成提示词中，但不等于查询结果必然满足每项约束。
+
 ## 资源生命周期
 
 上述检索器、生成器和引擎均支持 `with` 或手动 `close()`，关闭幂等，关闭后不能继续操作或重新进入上下文。
@@ -190,10 +212,9 @@ handler(request: str, limit: int, *, max_terms: int, max_queries: int) -> list[S
 | `SearchEngine` / `SearchResult` | `search_engine` / `search_result` |
 | `sparse.BM25Retriever` | `sparse.bm25_retriever` |
 | `dense.HNSWRetriever` | `dense.hnsw_retriever` |
-| `hybrid.CandidateFusionRetriever` | `hybrid.candidate_fusion_retriever` |
-| `hybrid.SemanticWeightedRetriever` | `hybrid.semantic_weighted_retriever` |
-| `hybrid.SequentialRetriever` | `hybrid.sequential_retriever` |
 | `query.Generator` | `query.generator` |
 | `vectorization.Qwen3Vectorizer` | `vectorization.qwen3_vectorizer` |
+
+混合检索器类名统一使用 `HRRFRetriever`、`SemanticRRFRetriever` 和 `SDCascadeRetriever`，保留 `Retriever` 后缀；引擎方法标识分别为 `HRRF`、`SEMANTIC_RRF` 和 `SD_CASCADE`，不添加 `HYBRID_` 前缀。调用方需同步更新类名、模块路径和方法标识，不提供旧名称别名；推荐使用本文开头的包级导入，模块路径见[项目结构](../structure.md)。
 
 旧有调用方无需再访问 `retriever.conn.close()`、`generator.client.close()` 或逐个关闭混合检索器的内部组件，统一使用对象的 `close()` 或上下文管理。

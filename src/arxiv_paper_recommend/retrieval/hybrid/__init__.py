@@ -1,7 +1,7 @@
 """Hybrid retrieval strategies sharing sparse and dense resources."""
 
-from .candidate_fusion_retriever import CandidateFusionRetriever
-from .semantic_weighted_retriever import SemanticWeightedRetriever
-from .sequential_retriever import SequentialRetriever
+from .hrrf_retriever import HRRFRetriever
+from .semantic_rrf_retriever import SemanticRRFRetriever
+from .sd_cascade_retriever import SDCascadeRetriever
 
-__all__ = ["CandidateFusionRetriever", "SemanticWeightedRetriever", "SequentialRetriever"]
+__all__ = ["HRRFRetriever", "SemanticRRFRetriever", "SDCascadeRetriever"]

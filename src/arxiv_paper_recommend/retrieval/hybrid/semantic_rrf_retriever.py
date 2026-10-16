@@ -8,7 +8,7 @@ from .base import BaseHybridRetriever
 from .constants import DEFAULT_RESULT_LIMIT
 
 
-class SemanticWeightedRetriever(BaseHybridRetriever):
+class SemanticRRFRetriever(BaseHybridRetriever):
     """Recall half as many sparse candidates, then weight each paper's RRF."""
 
     def search(

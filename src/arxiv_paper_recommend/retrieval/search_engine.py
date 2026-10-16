@@ -7,7 +7,11 @@ from ._lifecycle import ManagedResource
 from ._ranking import rank_ids
 from ._validation import validate_integer, validate_text
 from .dense import HNSWRetriever
-from .hybrid import CandidateFusionRetriever, SemanticWeightedRetriever, SequentialRetriever
+from .hybrid import (
+    HRRFRetriever,
+    SemanticRRFRetriever,
+    SDCascadeRetriever,
+)
 from .hybrid.base import BaseHybridRetriever
 from .hybrid.constants import MAX_RESULT_LIMIT
 from .query import QueryGenerator
@@ -46,9 +50,9 @@ class SearchEngine(ManagedResource):
         self._methods: dict[str, SearchHandler] = {}
         self.register_method("BM25", self._search_bm25)
         self.register_method("HNSW", self._search_hnsw)
-        self.register_method("HYBRID_CANDIDATE_FUSION", self._search_hybrid_candidate_fusion)
-        self.register_method("HYBRID_SEMANTIC_WEIGHTED", self._search_hybrid_semantic_weighted)
-        self.register_method("HYBRID_SEQUENTIAL", self._search_hybrid_sequential)
+        self.register_method("HRRF", self._search_hrrf)
+        self.register_method("SEMANTIC_RRF", self._search_semantic_rrf)
+        self.register_method("SD_CASCADE", self._search_sd_cascade)
 
     @property
     def available_methods(self) -> tuple[str, ...]:
@@ -117,25 +121,25 @@ class SearchEngine(ManagedResource):
             for document_id in rank_ids(candidates, scores, descending=True)[:limit]
         ]
 
-    def _search_hybrid_candidate_fusion(
+    def _search_hrrf(
         self, request: str, limit: int, *, max_terms: int, max_queries: int,
     ) -> list[SearchResult]:
         return self._run_hybrid(
-            request, limit, CandidateFusionRetriever, max_terms=max_terms, max_queries=max_queries,
+            request, limit, HRRFRetriever, max_terms=max_terms, max_queries=max_queries,
         )
 
-    def _search_hybrid_semantic_weighted(
+    def _search_semantic_rrf(
         self, request: str, limit: int, *, max_terms: int, max_queries: int,
     ) -> list[SearchResult]:
         return self._run_hybrid(
-            request, limit, SemanticWeightedRetriever, max_terms=max_terms, max_queries=max_queries,
+            request, limit, SemanticRRFRetriever, max_terms=max_terms, max_queries=max_queries,
         )
 
-    def _search_hybrid_sequential(
+    def _search_sd_cascade(
         self, request: str, limit: int, *, max_terms: int, max_queries: int,
     ) -> list[SearchResult]:
         return self._run_hybrid(
-            request, limit, SequentialRetriever, max_terms=max_terms, max_queries=max_queries,
+            request, limit, SDCascadeRetriever, max_terms=max_terms, max_queries=max_queries,
         )
 
     def _run_hybrid(

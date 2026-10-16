@@ -1,6 +1,6 @@
 # 本地文本向量化
 
-`Qwen3Vectorizer` 将查询或文档转换为 NumPy 向量，只负责编码，不保存向量归档或构建索引。安装与检索入口见 [README](../README.md)，向量保存及索引更新约定见[数据与构建](data.md)。
+`Qwen3Vectorizer` 将查询或文档转换为 NumPy 向量，只负责编码，不保存向量归档或构建索引。安装与检索入口见 [README](../README.md)，向量保存及索引更新约定见[数据与构建](data.md)，完成情况见[项目目标与进度](project.md)。它是检索编码器，不生成推荐理由；现有 `vectors.npz` 为预计算输入，当前仓库没有将整份语料批量编码并保存归档的命令。
 
 ## 安装与编码
 
@@ -20,8 +20,8 @@ query_vector = vectorizer.encode_queries(
 
 # 文档不添加指令；列表返回 (N, 1024)。
 document_vectors = vectorizer.encode_documents([
-    "Paper title A\nComplete abstract of paper A.",
-    "Paper title B\nComplete abstract of paper B.",
+    "Paper title A\n\nComplete abstract of paper A.",
+    "Paper title B\n\nComplete abstract of paper B.",
 ])
 ```
 
@@ -82,7 +82,7 @@ Query: {query}
 Given a research question, retrieve scientific papers whose core research addresses the question.
 ```
 
-两者不相同。本次重构保留当前代码默认值；如需显式使用归档记录的查询指令，可配置：
+两者不相同。当前实现使用前一个默认值；如需显式使用归档记录的查询指令，可配置：
 
 ```python
 vectorizer = Qwen3Vectorizer(
@@ -93,7 +93,9 @@ vectorizer = Qwen3Vectorizer(
 )
 ```
 
-改变指令会改变查询向量及可能的排名；改变模型、revision 或文档编码配置时，应检查与现有论文向量的兼容性。
+改变指令会改变查询向量及可能的排名；改变模型、revision 或文档编码配置时，应检查与现有论文向量的兼容性。正式实验需保存实际使用的查询指令、模型 revision、长度与设备配置，不能仅凭归档 metadata 推断在线查询配置。
+
+归档记录的生成环境与当前 `pyproject.toml` 安装环境并不相同；归档模型和 revision 一致不代表环境已完全复现。语料来源哈希差异见[归档模型元数据](data.md#归档模型元数据)，实验记录口径见[实验与评估](evaluation.md)。
 
 ## 注入检索器
 

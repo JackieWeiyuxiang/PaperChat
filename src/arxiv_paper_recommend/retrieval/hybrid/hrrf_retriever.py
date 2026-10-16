@@ -9,7 +9,7 @@ from .base import BaseHybridRetriever
 from .constants import DEFAULT_RESULT_LIMIT
 
 
-class CandidateFusionRetriever(BaseHybridRetriever):
+class HRRFRetriever(BaseHybridRetriever):
     """Keep each route's candidates, rerank each route, then fuse positions."""
 
     def search(

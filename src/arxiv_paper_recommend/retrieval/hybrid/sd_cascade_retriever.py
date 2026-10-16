@@ -8,7 +8,7 @@ from .base import BaseHybridRetriever, DenseScoreCache
 from .constants import DEFAULT_RESULT_LIMIT, SPARSE_CANDIDATE_MULTIPLIER
 
 
-class SequentialRetriever(BaseHybridRetriever):
+class SDCascadeRetriever(BaseHybridRetriever):
     """Search densely within BM25 candidates without a full-index dense search."""
 
     def search(

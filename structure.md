@@ -1,6 +1,6 @@
 # 项目结构与模块职责
 
-本文面向维护者，说明目录、职责边界和数据流。安装与快速开始见 [README](README.md)，接口与算法见[检索 API](docs/retrieval.md)，模型配置见[向量化](docs/vectorization.md)，存储格式见[数据与构建](docs/data.md)。
+本文面向维护者，说明当前工作区目录、职责边界和数据流。安装与快速开始见 [README](README.md)，课程目标与实现状态见[项目目标与进度](docs/project.md)，接口与算法见[检索 API](docs/retrieval.md)，模型配置见[向量化](docs/vectorization.md)，存储格式见[数据与构建](docs/data.md)，评估设计见[实验与评估](docs/evaluation.md)。
 
 ## 目录
 
@@ -14,7 +14,11 @@ arxiv_paper_recommend/
 ├── docs/
 │   ├── retrieval.md
 │   ├── vectorization.md
-│   └── data.md
+│   ├── data.md
+│   ├── project.md                   # 课程要求、方案差异与实现进度
+│   ├── evaluation.md                # 待执行评估设计与交付要求
+│   └── retrieval_overview.pdf       # 检索技术概览
+├── data.db                         # 历史文件，不用于当前默认接口
 ├── data/
 │   ├── raw/papers.jsonl
 │   ├── raw/vectors.npz
@@ -46,9 +50,9 @@ arxiv_paper_recommend/
     │   │   ├── __init__.py
     │   │   ├── base.py
     │   │   ├── constants.py
-    │   │   ├── candidate_fusion_retriever.py
-    │   │   ├── semantic_weighted_retriever.py
-    │   │   └── sequential_retriever.py
+    │   │   ├── hrrf_retriever.py
+    │   │   ├── semantic_rrf_retriever.py
+    │   │   └── sd_cascade_retriever.py
     │   ├── query/
     │   │   ├── __init__.py
     │   │   └── generator.py
@@ -74,6 +78,9 @@ arxiv_paper_recommend/
 | `retrieval.hybrid` | 跨检索器候选选择、重排与融合 | 三种策略各自实现算法，复用基类和每次搜索的评分缓存 |
 | `retrieval.search_engine` | 方法注册、请求生成、组件复用和方法分派 | BM25 保留原分数；HNSW 合并后重排；混合算法交给对应检索器 |
 | `retrieval._lifecycle / _validation / _ranking` | 资源所有权、公共校验和排序／RRF | 内部模块，不作为稳定公开 API |
+| `corpus` | 预留采集、清洗、分块及语料统计职责 | 当前为空包；现有数据快照不代表该流程已迁入源码 |
+| `recommendation.generation / citations / innovation` | 预留证据驱动的推荐生成、引用与下游创新职责 | 当前均为空包；查询生成器不能代替下游生成 |
+| `web` | 预留用户研究需求输入和推荐展示职责 | 当前为空包；没有可启动的 Web 服务 |
 
 `BaseHybridRetriever` 管理默认检索器和公共校验，`DenseScoreCache` 只在单次搜索内缓存评分。自建资源通过 `ManagedResource` 注册关闭操作，注入组件由调用方管理。
 
@@ -99,6 +106,15 @@ vectors.npz + documents.db ── IndexBuilder ──> documents.faiss
 ```
 
 底层检索器也可独立调用；HNSW 底层返回按查询分组的结果字典，引擎统一返回结果列表。
+
+目标中的下游流程尚未实现：
+
+```text
+list[SearchResult] ──> recommendation（理由生成 + 来源引用） ──> web 展示
+                           当前为占位                         当前为占位
+```
+
+原始 JSONL 保留作者、来源链接、日期和分类，但当前数据库与 `SearchResult` 只保留检索所需字段。实现推荐与网页时，需要在既定职责内补齐元数据读取与证据对应关系，不能假设现有结果已包含这些信息。
 
 ## 共享约定
 
