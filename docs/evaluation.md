@@ -1,10 +1,10 @@
 # 实验与评估
 
-本文记录作业与提案要求对应的待执行评估设计。项目要求及完成情况见[项目目标与进度](project.md)，方法与分数定义见[检索 API](retrieval.md)。核对日期：2026-10-16。
+本文记录作业与提案要求对应的评估设计、实现和数据缺口。项目要求及完成情况见[项目目标与进度](project.md)，方法与分数定义见[检索 API](retrieval.md)。
 
 ## 仓库当前状态
 
-仓库已实现 BM25、HNSW、三种混合检索策略及查询生成，但未提供正式评估程序、五查询结果与耗时、人工标注集、相关性指标或生成质量结果。下文的标注、记录格式与指标口径是待执行设计，不代表已有评估数据，也不依据未纳入 Git 的本地实验材料作出效果结论。
+仓库已实现 BM25、标题加权 BM25、HNSW、三种混合检索策略、查询生成和固定输入实验／指标脚本；但未提供 P2 的实验结果、人工标注集、相关性指标或生成质量结果。下文明确区分已实现工具和待提供数据，不依据缺失标签作出效果结论。
 
 2026-10-19 从 `data-preprocessing` 同步的[查询示例](../data/example_queries.json)包含 40 条中英文研究请求，覆盖十个收录主题，可用于试用及后续评估选题；尚无相关性标签或目标论文集合，不能直接作为已有人工评估集。
 
@@ -14,7 +14,7 @@
 
 相关性采用提案的三级标注：`0` 不相关、`1` 部分相关、`2` 高度相关。至少两名标注者独立阅读同一请求及论文标题、摘要；标注时隐藏检索方法、分数和排名。先记录原始标签并计算一致率，再对分歧进行讨论或仲裁，保存最终标签及说明。课程要求一致率至少 80%；建议另报告 Cohen's kappa 以补充反映偶然一致的影响。
 
-以下是建议的 JSONL 记录约定，尚未实现文件导出或评估程序：
+下表给出各团队成员应共享的 JSONL 记录约定。固定输入、运行结果和候选池可由下方实验程序导出；人工标签仍需 P5 组织标注：
 
 | 材料 | 建议字段 |
 | --- | --- |
@@ -26,6 +26,45 @@
 | 推荐生成与证据 | `run_id`、`query_id`、推荐论文 ID、理由、引用摘要及支持性判断 |
 
 检索相关性标签用于评估候选排序，不能单独替代对推荐理由的人工或模型辅助评估。生成完成后，仍需检查理由是否被摘要支持、推荐是否满足需求以及引用是否正确。
+
+## 已实现的检索实验程序
+
+`python -m arxiv_paper_recommend.evaluation.retrieval run` 接收 P2/P5 固定的检索输入，对相同的 `terms`、`queries` 和 `score_query` 运行 BM25、TITLE_BM25、HNSW、HRRF、SEMANTIC_RRF 与 SD_CASCADE，并导出完整排名及供标注使用的候选池。固定输入将检索排序比较与在线 LLM 改写分开；默认重复三次，先在计时外加载并预热向量模型。单次计时包含查询向量化和检索／重排，不包含数据库／索引／模型初始化或 LLM 查询生成。
+
+`data/evaluation/retrieval_inputs.jsonl` 每行一个查询，字段如下：
+
+```json
+{"query_id":"heldout_001","request":"...","terms":["..."],"queries":["..."],"score_query":"..."}
+```
+
+运行示例：
+
+```powershell
+uv run python -m arxiv_paper_recommend.evaluation.retrieval run `
+  --inputs data/evaluation/retrieval_inputs.jsonl `
+  --runs data/evaluation/retrieval_runs.jsonl `
+  --pool data/evaluation/candidate_pool.jsonl `
+  --limit 20
+```
+
+Dense 与 hybrid 方法需要 `uv sync --extra vectorization` 和可用的本地 Qwen 模型。输入文件应在 held-out 查询上冻结，并与 P2 的 query/terms 生成流程一致；不能在看过其相关性标签后调整查询或 3:1 标题权重。
+
+P5 将去重后的候选池分配人工标注，再提供最终 qrels，每行格式为 `{"query_id":"heldout_001","doc_id":"...","relevance":0}`，相关性为 0、1 或 2。使用下列命令生成 Precision@K、Recall@K、MRR@K、NDCG@K 及平均检索时间：
+
+```powershell
+uv run python -m arxiv_paper_recommend.evaluation.retrieval evaluate `
+  --qrels data/evaluation/qrels.jsonl `
+  --runs data/evaluation/retrieval_runs.jsonl `
+  --output data/evaluation/retrieval_metrics.json
+```
+
+为保证比较公平，若某查询在任一方法的候选结果中仍有未标注论文，该查询会从所有方法的指标中一起排除，并在报告里计入 `unjudged_or_incomplete_query_count`；脚本不会默默把未标注论文当成不相关。正式报告前需确认被评方法、查询集和 K 一致，并补足完整候选池判断。
+
+## P3 基础生成器
+
+`RecommendationGenerator` 接收用户需求和 `SearchResult` 候选，最多输出 10 篇论文及各自一到两句的推荐理由。模型只能选择候选中的 `doc_id`，提示要求理由以论文标题和摘要为依据；返回值同时保留论文原始结果，供之后展示来源。该实现是下游 baseline，不包含 P4 负责的 self-check、引用支持性判定或 RAG 质量提升方法。
+
+没有 LLM 凭证时不能实际生成理由或报告质量指标。生成评估应在 P5 选择的 held-out 查询及固定检索结果上运行，由 P4 与标注者判断 answer relevance、faithfulness 和 context relevance/precision；不能以结构化输出成功或模型自评替代人工质量结果。
 
 ## 检索指标与比较（待执行）
 
@@ -40,7 +79,7 @@
 
 未标注候选不应悄悄当作不相关；加入新方法或扩大返回深度后，应补齐所需标注或明确未判定比例及局限。候选池之外的相关论文未知，因此不能宣称已测得全库 Recall。
 
-现有五种方法可直接纳入比较，但需先冻结一项 hybrid 作为基线，再说明创新引入了什么变化。多查询、整合查询重排、分层 RRF、语义权重和级联候选选择均有实现，尚不能把其组合收益归因于其中任一项。若要做严格消融，应固定语料、模型、检索输入、K 和候选预算；不同方法当前的候选预算不同，需记录并分析这一影响。
+六种方法（BM25、TITLE_BM25、HNSW、HRRF、SEMANTIC_RRF、SD_CASCADE）可直接纳入比较；P3 的创新对照为 TITLE_BM25 与等权 BM25。多查询、整合查询重排、分层 RRF、语义权重和级联候选选择均已实现，尚不能把其组合收益归因于其中任一项。严格比较需固定语料、模型、检索输入和 K；不同方法当前的候选预算不同，需记录并分析这一影响。
 
 还需区分两种实验：固定 `terms/queries/score_query` 比较检索与排序，以及包含实时 LLM 查询生成的端到端比较。当前 `SearchEngine` 的 HNSW 方法包含多查询合并与整合查询重排，不等同于底层 `HNSWRetriever.search` 的单查询近似召回。
 

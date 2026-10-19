@@ -15,6 +15,7 @@ from arxiv_paper_recommend.retrieval.hybrid import (
     SemanticRRFRetriever,
     SDCascadeRetriever,
 )
+from arxiv_paper_recommend.retrieval.innovation import TitleAwareBM25Retriever
 from arxiv_paper_recommend.retrieval.query import QueryGenerator
 ```
 
@@ -57,6 +58,34 @@ with BM25Retriever() as retriever:
     results = retriever.term_search(terms, limit=10)
     scores = retriever.get_score([result.id for result in results], terms)
 ```
+
+## 基线问题分析
+
+当前的 BM25 和 HNSW 是有用的对照基线，但各自有明确局限：
+
+- **BM25 依赖词面重合。** 同义表达、缩写变化和自然语言描述与论文实际用词不一致时，即使研究主题相近也可能漏召回。SearchEngine 通过 LLM 生成英文词项来缓解这一问题，但结果仍依赖词项生成质量。
+- **BM25 对标题和摘要等权。** 当前 FTS5 表把 `title` 与 `abstract` 放在同一 BM25 排名中，默认各列权重相同。摘要较长且讨论面广，可能因摘要中的偶然词面命中排在标题直接描述核心主题的论文之前。
+- **HNSW 的语义相似度可能弱化精确术语。** 对罕见方法名、数据集、缩写或硬约束，词面检索可能提供更直接的证据；向量索引是近似最近邻搜索，也不是精确相关性判断。
+- **现有混合策略尚无标注评估。** HRRF、SemanticRRF 与 SD Cascade 提供了融合选择，但候选预算和排序规则不同，且仓库没有人工相关性标签，当前不能据此断言哪种方法质量更高。
+
+## 检索创新：Title-Boosted BM25
+
+`TitleAwareBM25Retriever` 针对等权 BM25 的字段权重问题，仍使用相同的 FTS5 索引和关键词查询，只将标题、摘要、未索引 doc_id 的 BM25 字段权重设为 `3.0, 1.0, 0.0`。它不增加新的模型或索引，也不改变候选匹配逻辑，因此可以和 `BM25` 在同一查询词、语料和 Top-K 下进行直接对照。
+
+该改动的假设是：研究主题在标题中的明确命中应获得比摘要偶然提及更高的排序贡献。它可能降低标题措辞差异较大的论文排名，也不能弥补 BM25 的同义词召回问题；3:1 权重是待评估的初始值，不是已调优结论。
+
+独立使用方式：
+
+```python
+from arxiv_paper_recommend.retrieval.innovation import TitleAwareBM25Retriever
+
+with TitleAwareBM25Retriever() as retriever:
+    results = retriever.term_search(
+        ["retrieval augmented generation", "reasoning"], limit=10,
+    )
+```
+
+在 SearchEngine 中可用 `method="TITLE_BM25"` 调用。它和 BM25 一样只需关键词生成及数据库，不需要向量化模型。后续应在固定查询词和候选池下与等权 BM25 比较 NDCG@10、MRR@10、Recall@10，并在开发集上选择权重后用留出集报告结果。
 
 ## HNSWRetriever
 
@@ -160,6 +189,7 @@ search(request, method, limit=20, *, max_terms=12, max_queries=4) -> list[Search
 | method | 使用的参数 | 最终 limit | LLM 调用 |
 | --- | --- | --- | --- |
 | `BM25` | max_terms：5～20 | 正整数 | 1 次关键词生成 |
+| `TITLE_BM25` | max_terms：5～20 | 正整数 | 1 次关键词生成 |
 | `HNSW` | max_queries：正整数 | 正整数 | 查询生成 + 单条整合评分查询；无候选时仅 1 次 |
 | `HRRF` | max_terms：5～20；max_queries：正整数 | 1～100 | 关键词、查询、评分查询各 1 次 |
 | `SEMANTIC_RRF` | 同上 | 1～100 | 同上 |

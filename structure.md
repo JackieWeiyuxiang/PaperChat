@@ -17,6 +17,7 @@ arxiv_paper_recommend/
 │   ├── data.md
 │   ├── project.md                   # 课程要求、方案差异与实现进度
 │   ├── evaluation.md                # 待执行评估设计与交付要求
+│   ├── p3_report.md                 # P3 检索创新、案例和 generation baseline
 │   └── retrieval_overview.pdf       # 检索技术概览
 ├── data.db                         # 历史文件，不用于当前默认接口
 ├── data/
@@ -54,15 +55,22 @@ arxiv_paper_recommend/
     │   │   ├── hrrf_retriever.py
     │   │   ├── semantic_rrf_retriever.py
     │   │   └── sd_cascade_retriever.py
+    │   ├── innovation/
+    │   │   ├── __init__.py
+    │   │   └── title_aware_bm25.py
     │   ├── query/
     │   │   ├── __init__.py
     │   │   └── generator.py
-    │   └── innovation/              # 占位
     ├── corpus/                      # 占位
-    ├── recommendation/              # 占位
+    ├── recommendation/
     │   ├── citations/
     │   ├── generation/
+    │   │   ├── __init__.py
+    │   │   └── baseline_generator.py
     │   └── innovation/
+    ├── evaluation/
+    │   ├── __init__.py
+    │   └── retrieval.py             # 固定输入对比、候选池导出和排名指标
     └── web/                         # 占位
 ```
 
@@ -73,14 +81,17 @@ arxiv_paper_recommend/
 | `config` | 从根目录 `.env` 加载 LLM 配置，定义默认数据路径 | 不创建客户端或读取语料 |
 | `vectorization` | 模型加载、文本编码、池化与归一化 | 返回向量，不保存归档、不构建索引 |
 | `retrieval.search_result` | 统一结果数据类 | 不执行检索或评分 |
-| `retrieval.sparse` | 数据库导入、FTS5 构建、关键词召回和 BM25 评分 | 保留原始 BM25 分数 |
+| `retrieval.sparse` | 数据库导入、FTS5 构建、关键词召回和 BM25 评分 | 保留原始等权 BM25 基线分数 |
 | `retrieval.dense` | 向量索引构建、HNSW 召回、指定 ID 精确评分及结果读取 | 不生成 LLM 查询；评分仅检查数据库 ID |
 | `retrieval.query` | LLM 输入生成、结构化响应与生成模型缓存 | 不执行向量化或检索 |
 | `retrieval.hybrid` | 跨检索器候选选择、重排与融合 | 三种策略各自实现算法，复用基类和每次搜索的评分缓存 |
+| `retrieval.innovation` | 独立实现并导出检索创新 | 当前为标题加权 BM25；从统一数据库执行 FTS5 加权评分 |
 | `retrieval.search_engine` | 方法注册、请求生成、组件复用和方法分派 | BM25 保留原分数；HNSW 合并后重排；混合算法交给对应检索器 |
 | `retrieval._lifecycle / _validation / _ranking` | 资源所有权、公共校验和排序／RRF | 内部模块，不作为稳定公开 API |
 | `corpus` | 预留采集、清洗、分块及语料统计职责 | 当前为空包；现有数据快照不代表该流程已迁入源码 |
-| `recommendation.generation / citations / innovation` | 预留证据驱动的推荐生成、引用与下游创新职责 | 当前均为空包；查询生成器不能代替下游生成 |
+| `recommendation.generation` | 接收检索结果、生成论文推荐与简短理由 | 已实现基础生成；支持性核验和来源 URL 留待扩展 |
+| `recommendation.citations / innovation` | 预留来源引用与下游推荐创新职责 | 当前为空包；不属于检索查询生成器职责 |
+| `evaluation` | 固定检索输入运行多种方法、导出候选池并计算排名指标 | 不生成标签；正式效果评估需要人工判断 |
 | `web` | 预留用户研究需求输入和推荐展示职责 | 当前为空包；没有可启动的 Web 服务 |
 
 `BaseHybridRetriever` 管理默认检索器和公共校验，`DenseScoreCache` 只在单次搜索内缓存评分。自建资源通过 `ManagedResource` 注册关闭操作，注入组件由调用方管理。
@@ -100,6 +111,7 @@ vectors.npz + documents.db ── IndexBuilder ──> documents.faiss
 研究请求 ── SearchEngine ── QueryGenerator ── 关键词 / 语义查询 / 评分查询
                     └── 方法分派
                         ├── BM25Retriever ── documents.db
+                        ├── TitleAwareBM25Retriever ── documents.db
                         ├── HNSWRetriever ── Qwen3Vectorizer + 索引 + 数据库
                         └── 混合检索器 ── 复用 BM25 与 HNSW
                                       ↓
@@ -108,11 +120,11 @@ vectors.npz + documents.db ── IndexBuilder ──> documents.faiss
 
 底层检索器也可独立调用；HNSW 底层返回按查询分组的结果字典，引擎统一返回结果列表。
 
-目标中的下游流程尚未实现：
+基础推荐生成已实现；下游创新和网页仍待完成：
 
 ```text
-list[SearchResult] ──> recommendation（理由生成 + 来源引用） ──> web 展示
-                           当前为占位                         当前为占位
+list[SearchResult] ──> RecommendationGenerator（基础理由生成） ──> web 展示
+                                 已实现                         当前为占位
 ```
 
 原始 JSONL 保留作者、来源链接、日期和分类，但当前数据库与 `SearchResult` 只保留检索所需字段。实现推荐与网页时，需要在既定职责内补齐元数据读取与证据对应关系，不能假设现有结果已包含这些信息。
