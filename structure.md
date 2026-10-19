@@ -24,6 +24,7 @@ arxiv_paper_recommend/
 │   ├── raw/vectors.npz
 │   ├── documents.db
 │   ├── documents.faiss
+│   ├── example_queries.json         # 40 条中英文研究请求，尚无相关性标注
 │   └── statistics.md                # 本地报告，被 Git 忽略
 └── src/arxiv_paper_recommend/
     ├── __init__.py                  # main()，当前仅打印问候信息

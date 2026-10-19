@@ -1,0 +1,333 @@
+{
+  "purpose": "供步骤二开发与试用的 40 个用户找论文请求示例，覆盖十个收录主题，以领域探索和实际研究问题为主，保留少量明确方向的查询。",
+  "corpus": "data/raw/papers.jsonl",
+  "usage": "question 和 query_en 分别是同一找论文请求的中英文表达；向量检索可将任一版本传入 encode_queries，英文 BM25 使用 query_en。scope 说明请求范围，不作为额外检索输入；宽泛请求可返回不同方向的论文，或通过追问缩小范围。 query_type 仅用于分组查看，不作为检索输入，也不表示研究水平或难度。",
+  "note": "这些示例用于试用论文检索，尚未配套人工相关性标注或目标论文集合。",
+  "questions": [
+    {
+      "id": "q1",
+      "question": "我刚开始了解 RAG，想找些论文看看这个领域主要在研究什么。",
+      "scope": "覆盖 RAG 的主要研究方向；综述或能帮助理解不同方向的研究论文均可，不限定具体方法。",
+      "topic": "rag",
+      "query_en": "I'm new to RAG and would like some papers to help me understand the main research directions.",
+      "query_type": "exploration"
+    },
+    {
+      "id": "q2",
+      "question": "请帮我找一些 RAG 上下文压缩的论文，我比较关注压缩后能否保留回答所需的关键证据。",
+      "scope": "压缩、提炼或筛除检索上下文以保留有用信息，包括文本和表示层面的压缩；区分模型参数压缩及单纯扩大上下文窗口。",
+      "topic": "rag",
+      "query_en": "Please find papers on context compression for RAG, particularly methods that preserve the key evidence needed to answer a question.",
+      "query_type": "specific_direction"
+    },
+    {
+      "id": "q3",
+      "question": "我的 RAG 能找到看起来相关的内容，但回答还是经常不好。有没有研究这类问题的论文？",
+      "scope": "关注检索内容与回答质量之间的问题，允许涉及检索、上下文使用或生成等不同解释；查询尚未确定原因。",
+      "topic": "rag",
+      "query_en": "My RAG system retrieves content that looks relevant, but the answers are often poor. Are there papers studying this kind of problem?",
+      "query_type": "research_problem"
+    },
+    {
+      "id": "q4",
+      "question": "我想找评估 RAG 回答中引用是否可靠的论文，重点是引用能否真正支持对应的陈述。",
+      "scope": "直接研究引用或证据对具体陈述的支持判断、归因正确性评价；单纯生成引用或评测答案流畅度不足以认定核心相关。",
+      "topic": "rag",
+      "query_en": "I'm looking for papers on evaluating citations in RAG answers, especially whether the cited evidence actually supports each claim.",
+      "query_type": "specific_direction"
+    },
+    {
+      "id": "q5",
+      "question": "请推荐一些仓库级代码补全的论文，主要关注从其他文件中检索有用代码上下文的方法。",
+      "scope": "直接研究代码补全中的跨文件／仓库上下文查找、检索或选择；区分一般代码生成和没有仓库上下文机制的补全。",
+      "topic": "rag",
+      "query_en": "Please recommend papers on repository-level code completion that focus on retrieving useful code context from other files.",
+      "query_type": "specific_direction"
+    },
+    {
+      "id": "q6",
+      "question": "我的智能体有时候工具调用失败后就卡住了，想找些论文看看别人怎么处理。",
+      "scope": "关注智能体执行失败后的处理或恢复；允许不同故障原因与方法，不预先限定恢复机制。",
+      "topic": "agents",
+      "query_en": "My agent sometimes gets stuck after a tool call fails. I'd like to find papers on how others handle this.",
+      "query_type": "research_problem"
+    },
+    {
+      "id": "q7",
+      "question": "有没有关于大模型智能体记忆的论文？我想先了解一下这方面有哪些做法。",
+      "scope": "关注智能体记忆，可涵盖记忆组织、更新、使用或评估，尚未限定长期记忆或某种失效问题。",
+      "topic": "agents",
+      "query_en": "Are there papers on memory for LLM agents? I'd like to get a sense of the different approaches.",
+      "query_type": "exploration"
+    },
+    {
+      "id": "q8",
+      "question": "我想了解多智能体协作，能推荐一些适合开始读的论文吗？",
+      "scope": "覆盖多智能体协作的不同方向；综述与研究论文均可，不限定通信效率或分工方法。",
+      "topic": "agents",
+      "query_en": "I'd like to learn about multi-agent collaboration. Could you recommend some papers to start with?",
+      "query_type": "exploration"
+    },
+    {
+      "id": "q9",
+      "question": "我用的推理模型有时候回答很简单的问题也要想很久，有没有相关论文可以参考？",
+      "scope": "关注简单问题上的过长推理或推理效率；允许分析原因和提出改进方法的论文，不限定自适应预算。",
+      "topic": "reasoning",
+      "query_en": "The reasoning model I use sometimes spends a long time on simple questions. Are there papers I could read about this?",
+      "query_type": "research_problem"
+    },
+    {
+      "id": "q10",
+      "question": "请推荐一些大模型推理过程验证的论文，我想了解如何定位中间步骤的错误。",
+      "scope": "关注过程验证、步骤级监督或过程奖励；最终答案判分只能作为辅助。",
+      "topic": "reasoning",
+      "query_en": "Please recommend papers on verifying LLM reasoning processes, particularly methods for locating errors in intermediate steps.",
+      "query_type": "specific_direction"
+    },
+    {
+      "id": "q11",
+      "question": "我想找大模型自我纠错方面的论文，看看这个方向有哪些研究。",
+      "scope": "关注模型自我纠错的机制、能力或局限；无需同时满足反馈驱动、推理修正等具体条件。",
+      "topic": "reasoning",
+      "query_en": "I'm looking for papers on self-correction in LLMs to see what work has been done in this area.",
+      "query_type": "exploration"
+    },
+    {
+      "id": "q12",
+      "question": "我的图像问答模型有时会说出图里没有的东西，想找些研究这个问题的论文。",
+      "scope": "关注视觉语言模型输出缺乏图像依据的现象及其分析或缓解；不限定某一种幻觉检测方法。",
+      "topic": "multimodal",
+      "query_en": "My visual question answering model sometimes mentions things that aren't in the image. I'd like papers studying this problem.",
+      "query_type": "research_problem"
+    },
+    {
+      "id": "q13",
+      "question": "我想找一些视觉语言模型处理高分辨率图像的论文。",
+      "scope": "关注高分辨率图像处理，可涉及细节理解、输入表示或效率，不要求同时优化细节与计算成本。",
+      "topic": "multimodal",
+      "query_en": "I'm looking for papers on how vision-language models handle high-resolution images.",
+      "query_type": "research_problem"
+    },
+    {
+      "id": "q14",
+      "question": "我准备了解视频理解，想找几篇论文看看有哪些值得研究的问题。",
+      "scope": "覆盖视频理解的不同研究问题，不限定事件顺序或时序推理。",
+      "topic": "multimodal",
+      "query_en": "I'm starting to explore video understanding and would like a few papers to learn what problems people are working on.",
+      "query_type": "exploration"
+    },
+    {
+      "id": "q15",
+      "question": "我让文生图模型把物体放在指定位置，结果经常不对。能帮我找些相关论文吗？",
+      "scope": "关注生成图像的位置、布局或空间关系与用户要求不一致的问题，允许评估、分析和改进方法。",
+      "topic": "image_video_generation",
+      "query_en": "When I ask a text-to-image model to put objects in specific positions, it often gets them wrong. Could you find some relevant papers?",
+      "query_type": "research_problem"
+    },
+    {
+      "id": "q16",
+      "question": "我想找视频生成中角色一致性的论文，重点是保持同一个角色在不同帧中的外观和身份。",
+      "scope": "关注跨帧身份或外观一致性；区分单帧画质改善与视频理解任务。",
+      "topic": "image_video_generation",
+      "query_en": "I'm looking for papers on character consistency in video generation, especially preserving a character's appearance and identity across frames.",
+      "query_type": "specific_direction"
+    },
+    {
+      "id": "q17",
+      "question": "我想了解用自然语言指令编辑图像的研究，有哪些论文可以看？",
+      "scope": "关注指令驱动的图像编辑，不额外限定局部编辑、掩码或区域保持。",
+      "topic": "image_video_generation",
+      "query_en": "I'd like to learn about editing images with natural language instructions. What papers could I read?",
+      "query_type": "exploration"
+    },
+    {
+      "id": "q18",
+      "question": "我想了解大模型在机器人上的应用，能帮我找些论文作为起点吗？",
+      "scope": "关注大模型与机器人任务的结合，可涉及规划、交互或控制，不限定操作动作生成。",
+      "topic": "embodied_robotics",
+      "query_en": "I'd like to learn about applications of large language models in robotics. Could you find some papers to start with?",
+      "query_type": "exploration"
+    },
+    {
+      "id": "q19",
+      "question": "我的机器人在训练场景里表现不错，换个物体或者环境就容易失败，想找些相关研究。",
+      "scope": "关注物体或环境变化下的机器人泛化问题；不预先确定失败原因或适用方法。",
+      "topic": "embodied_robotics",
+      "query_en": "My robot works well in its training setup but often fails with different objects or environments. I'd like to find related research.",
+      "query_type": "research_problem"
+    },
+    {
+      "id": "q20",
+      "question": "我想找机器人从示范中学习的论文，尤其是示范数据不太多的情况。",
+      "scope": "关注示范学习及有限数据条件下的学习，不限定示范数量或必须适应新任务。",
+      "topic": "embodied_robotics",
+      "query_en": "I'm looking for papers on robots learning from demonstrations, especially when there isn't much demonstration data.",
+      "query_type": "research_problem"
+    },
+    {
+      "id": "q21",
+      "question": "我的问答系统遇到需要结合多份资料的问题时，经常漏掉重要信息。想找些研究这类问题的论文。",
+      "scope": "关注结合多份资料的问答中的信息缺失，不预设检索或推理方法。",
+      "topic": "rag",
+      "query_en": "My question-answering system often misses important information when a question requires several sources. Could you find papers studying this problem?",
+      "query_type": "research_problem"
+    },
+    {
+      "id": "q22",
+      "question": "我让多个智能体一起完成任务，但经常重复工作，或者有任务没人处理。有没有相关研究？",
+      "scope": "关注多智能体协作中的重复工作和任务遗漏，不预设任务分配方案。",
+      "topic": "agents",
+      "query_en": "When I use multiple agents on a task, they often duplicate work or leave parts unfinished. Are there papers studying this?",
+      "query_type": "research_problem"
+    },
+    {
+      "id": "q23",
+      "question": "推理时间变长不一定让模型回答得更好。我想了解什么时候多花计算有用，什么时候只是浪费。",
+      "scope": "关注额外推理计算与答案质量的关系，不限定采样或预算方法。",
+      "topic": "reasoning",
+      "query_en": "Giving my reasoning model more time doesn’t always improve its answers. I’d like papers on when extra computation helps and when it is wasted.",
+      "query_type": "research_problem"
+    },
+    {
+      "id": "q24",
+      "question": "我的视觉语言模型回答很详细，但我不确定它是否真的看懂了图像，还是凭常识猜的。能找些相关论文吗？",
+      "scope": "关注视觉语言模型对图像证据的依赖，不限定区域定位或检测方法。",
+      "topic": "multimodal",
+      "query_en": "My vision-language model gives detailed answers, but I’m not sure whether it actually understands the image or is guessing from general knowledge. Could you find related papers?",
+      "query_type": "research_problem"
+    },
+    {
+      "id": "q25",
+      "question": "我让模型修改图像中的一个物体，它却把其他不相关的地方也改了。想找些研究这类问题的论文。",
+      "scope": "关注图像编辑中的非预期内容变化，不限定模型类型。",
+      "topic": "image_video_generation",
+      "query_en": "When I ask a model to change one object in an image, it also changes unrelated parts. I’d like papers studying these unintended edits.",
+      "query_type": "research_problem"
+    },
+    {
+      "id": "q26",
+      "question": "同一个机器人任务有几种正确做法，但模型从示范中学出来的动作有时哪种都不像。有没有研究这类学习问题的论文？",
+      "scope": "关注多种有效示范下的机器人动作学习，不预设动作分布模型。",
+      "topic": "embodied_robotics",
+      "query_en": "There are several valid ways to perform a robot task, but the actions my model learns from demonstrations sometimes don’t resemble any of them. Are there papers on this learning problem?",
+      "query_type": "research_problem"
+    },
+    {
+      "id": "q27",
+      "question": "我的智能体运行久了会混淆新旧信息，有时候还会用已经过时的内容做决定。能找些相关论文吗？",
+      "scope": "关注长期运行智能体的信息过时与混淆，不预设具体故障模块。",
+      "topic": "agents",
+      "query_en": "After running for a while, my agent mixes up old and new information and sometimes makes decisions using outdated information. Could you find related papers?",
+      "query_type": "research_problem"
+    },
+    {
+      "id": "q28",
+      "question": "我的模型能理解短视频片段，但看长视频时容易漏掉关键事件，或者搞错事情发生的顺序。想找些相关研究。",
+      "scope": "关注长视频中的事件遗漏和时序理解，不预设输入压缩方法。",
+      "topic": "multimodal",
+      "query_en": "My model understands short video clips, but with longer videos it misses key events or gets their order wrong. I’d like to find related research.",
+      "query_type": "research_problem"
+    },
+    {
+      "id": "q29",
+      "question": "我想了解让大模型训练和运行更省资源的研究，能推荐一些入门论文吗？",
+      "scope": "覆盖大模型训练与推理效率的主要方向。",
+      "topic": "efficient_training_inference",
+      "query_en": "I’d like to learn about making large language models cheaper to train and run. Could you recommend some papers to start with?",
+      "query_type": "exploration"
+    },
+    {
+      "id": "q30",
+      "question": "我的大模型处理长输入时显存占用很高，想找一些降低推理显存需求的论文。",
+      "scope": "关注长输入下推理显存需求，不限定优化方法。",
+      "topic": "efficient_training_inference",
+      "query_en": "My language model uses a lot of GPU memory with long inputs. I’d like papers on reducing inference memory requirements.",
+      "query_type": "research_problem"
+    },
+    {
+      "id": "q31",
+      "question": "我的模型单独处理一个请求时还算快，但同时使用的人多了，响应就明显变慢。想找些分析或改善这个问题的论文。",
+      "scope": "关注并发服务中的响应延迟，不预设调度或计算方面的原因。",
+      "topic": "efficient_training_inference",
+      "query_en": "My model handles a single request reasonably quickly, but responses become much slower when many people use it at once. I’d like papers analyzing or improving this problem.",
+      "query_type": "research_problem"
+    },
+    {
+      "id": "q32",
+      "question": "我想了解大模型能怎样帮助软件开发，能找些论文让我了解主要方向吗？",
+      "scope": "覆盖大模型辅助软件开发的不同任务。",
+      "topic": "code_software_engineering",
+      "query_en": "I’d like to learn how large language models can help with software development. Could you find papers introducing the main directions?",
+      "query_type": "exploration"
+    },
+    {
+      "id": "q33",
+      "question": "模型写的代码看起来没问题，但经常过不了测试。有没有研究如何改善这个问题的论文？",
+      "scope": "关注生成代码的功能正确性及测试失败。",
+      "topic": "code_software_engineering",
+      "query_en": "The code my model writes looks plausible but often fails the tests. Are there papers on improving this?",
+      "query_type": "research_problem"
+    },
+    {
+      "id": "q34",
+      "question": "我让模型修复代码错误，它有时候修好了一个问题，却引入新的问题。有没有研究这种情况的论文？",
+      "scope": "关注程序修复引入新错误，不限定迭代或测试反馈方法。",
+      "topic": "code_software_engineering",
+      "query_en": "When I ask a model to fix a bug, it sometimes fixes one problem but introduces another. Are there papers studying this?",
+      "query_type": "research_problem"
+    },
+    {
+      "id": "q35",
+      "question": "我刚开始关注大模型安全，想找些论文了解主要风险和研究方向。",
+      "scope": "覆盖大模型安全风险及主要研究方向。",
+      "topic": "safety_alignment",
+      "query_en": "I’m starting to explore LLM safety. Please find papers that explain the main risks and research directions.",
+      "query_type": "exploration"
+    },
+    {
+      "id": "q36",
+      "question": "我的智能体会读取网页，我担心网页里的恶意指令影响它。能找些防范这类问题的论文吗？",
+      "scope": "关注来自外部网页的恶意指令及防御，不限定防御机制。",
+      "topic": "safety_alignment",
+      "query_en": "My agent reads web pages, and I’m concerned that malicious instructions on those pages could influence it. Could you find papers on defenses?",
+      "query_type": "research_problem"
+    },
+    {
+      "id": "q37",
+      "question": "我想让大模型不再泄露某些敏感信息，但担心换个问法它就又说出来了。能找些研究这个问题的论文吗？",
+      "scope": "关注敏感信息抑制的稳健性，不限定机器遗忘或拒答训练。",
+      "topic": "safety_alignment",
+      "query_en": "I want a language model to stop revealing certain sensitive information, but I’m worried it may reveal it again if asked differently. Could you find papers studying this?",
+      "query_type": "research_problem"
+    },
+    {
+      "id": "q38",
+      "question": "我想了解 AI 在科学研究中的应用，能推荐一些展示不同研究方向的论文吗？",
+      "scope": "覆盖 AI 辅助科学研究的不同领域与任务。",
+      "topic": "ai_for_science",
+      "query_en": "I’d like to learn how AI is used in scientific research. Could you recommend papers illustrating different directions?",
+      "query_type": "exploration"
+    },
+    {
+      "id": "q39",
+      "question": "我对用 AI 设计蛋白质感兴趣，想找些论文了解现在有哪些研究。",
+      "scope": "关注 AI 蛋白质设计，不限定生成模型或具体设计方法。",
+      "topic": "ai_for_science",
+      "query_en": "I’m interested in using AI to design proteins. Please find papers showing what research has been done.",
+      "query_type": "research_problem"
+    },
+    {
+      "id": "q40",
+      "question": "我用神经网络求解物理问题时，训练误差下降了，结果却还是不符合物理规律。想找些分析原因或改进方法的论文。",
+      "scope": "关注物理问题中训练目标与物理正确性不一致，不预设模型类型或失败原因。",
+      "topic": "ai_for_science",
+      "query_en": "When I use neural networks to solve physics problems, the training error decreases but the results still violate physical laws. I’d like papers analyzing why this happens or how to improve it.",
+      "query_type": "research_problem"
+    }
+  ],
+  "query_types": {
+    "exploration": "了解领域或研究方向。",
+    "research_problem": "描述遇到的现象或研究问题，不预先指定原因和解决办法。",
+    "specific_direction": "已有明确技术方向或评价目标，寻找相关论文。"
+  }
+}
