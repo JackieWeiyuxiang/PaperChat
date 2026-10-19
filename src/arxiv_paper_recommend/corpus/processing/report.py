@@ -4,7 +4,9 @@ from collections import Counter
 
 TOPICS = {"rag": "RAG", "agents": "智能体", "reasoning": "大模型推理",
           "multimodal": "多模态", "image_video_generation": "图像／视频生成",
-          "embodied_robotics": "具身智能"}
+          "embodied_robotics": "具身智能", "efficient_training_inference": "高效训练与推理",
+          "code_software_engineering": "代码生成与软件工程",
+          "safety_alignment": "大模型安全与对齐", "ai_for_science": "AI for Science"}
 
 
 def table(headers, rows):

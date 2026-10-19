@@ -35,7 +35,7 @@ papers = [json.loads(line) for line in Path("data/papers.jsonl").read_text(encod
 python -m arxiv_paper_recommend.retrieval.bm25.baseline "multi-hop retrieval augmented generation" --top-k 5
 ```
 
-统计见 [statistics.md](../data/statistics.md)。当前 6,000 篇尚需扩充至最终至少 10,000 篇文档或段落。
+统计见 [statistics.md](../data/statistics.md)。当前共有 10,000 篇文献，每篇对应一个完整标题＋摘要段落，已达到作业的至少 10,000 篇文档或段落要求。
 
 ## 向量库
 
@@ -95,4 +95,8 @@ for i in np.argsort(-scores)[:5]:
 
 这是对全部论文的精确向量检索。后续可按 `doc_id` 与 BM25 结果融合；返回的相似度分数不代表相关概率。
 
-当前 Qwen 向量库包含 6,000 个向量，文件约 22.9 MB。2026-10-12 已完成加载、ID 对应、数值与归一化检查；12 篇抽样论文重新编码均找回自身，20 个示例的中英文版本共 40 次查询均成功返回结果。另以 Transformers 的最后有效 token 池化核对了查询编码。这些检查确认向量库可用，检索相关性仍需后续标注评估。验证代码未保存。
+当前 Qwen 向量库包含 10,000 个 1,024 维向量，文件约 38.2 MB。2026-10-17 扩充时核对模型版本、语料指纹与论文对应关系，保留未改变的前 8,000 个向量，并用同一编码函数生成新增 2,000 个向量；上述 pipeline 仍可从完整文本重新生成全部向量。
+
+2026-10-17 的向量库检查通过：10,000 篇的 ID、规范化标题和摘要无重复；覆盖十个主题的 24 篇论文重新编码均找回自身；20 个中英文示例与 4 个新增主题请求共 44 次查询成功返回结果，新增请求的前五名均包含对应主题论文。检索相关性仍需后续标注评估。临时验证代码未保存。
+
+查询示例现已扩充为 40 个，覆盖十个主题，按 `query_type` 分为领域探索（exploration）、研究问题（research_problem）和明确方向（specific_direction）；这一区分不代表研究水平或难度。上述 44 次查询记录对应扩充前的 20 个示例；新增示例尚未进行检索效果评估。

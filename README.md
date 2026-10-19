@@ -1,6 +1,6 @@
 # arXiv Paper Recommendation
 
-步骤一将原始文献清洗、去重，生成可供步骤二检索的文本和语料统计报告。当前共有 6,000 篇文献，每篇完整标题＋摘要作为一个检索单元。
+步骤一将原始文献清洗、去重，生成可供步骤二检索的文本和语料统计报告。当前共有 10,000 篇文献，每篇完整标题＋摘要作为一个检索单元。
 
 ## 数据文件
 
@@ -13,7 +13,7 @@
 | [papers.jsonl](data/papers.jsonl) | 清洗、去重后的文献，每行含 `doc_id`、`chunk_id`、检索用 `text` 和论文信息。 |
 | [vectors.npz](data/vectors.npz) | Qwen3-Embedding-0.6B 稠密向量库，包含向量、论文 ID 对应关系、模型版本与查询指令。 |
 | [statistics.md](data/statistics.md) | 主题、年份、分类、文本长度、关键词覆盖及数量统计。 |
-| [example_queries.json](data/example_queries.json) | 20 个研究问题示例，覆盖六个主题，含中英文检索句。 |
+| [example_queries.json](data/example_queries.json) | 40 个用户找论文请求示例，覆盖十个主题，包含领域探索、实际研究问题和少量明确方向的查询，含中英文检索句。 |
 
 临时分析结论保存在 [conclusions.md](data/conclusions.md)。
 
