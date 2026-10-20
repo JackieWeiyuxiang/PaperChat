@@ -2,18 +2,18 @@
 
 基于 arXiv 标题与摘要的检索增强论文推荐项目，用于 AI6127（2026）课程作业。目标是根据自然语言研究需求生成 Top-10 论文推荐、简短推荐理由和来源引用。
 
-当前已实现检索阶段的 Python API：BM25、单查询与分路 HNSW、三种混合检索策略、Qwen3 本地向量化，以及 LLM 查询生成。可直接提供关键词／语义查询，也可通过 `SearchEngine` 从研究请求生成检索输入。返回的是论文及检索分数，尚不生成推荐理由或证据引用。
+当前已实现检索与基础推荐生成的 Python API：BM25、单查询与分路 HNSW、三种混合检索策略、Qwen3 本地向量化，以及 LLM 查询生成。可直接提供关键词／语义查询，也可通过 `SearchEngine` 从研究请求生成检索输入；再将检索结果交给 `RecommendationGenerator`，生成基于候选标题和摘要的推荐理由。独立的来源引用模块仍待实现。
 
 ## 当前进度
 
-以下代码状态依据 2026-10-16 的工作区整理，数据已于 2026-10-19 从 `data-preprocessing` 分支同步，不计未纳入 Git 的本地实验材料。
+以下代码状态依据 2026-10-20 的工作区整理，数据已于 2026-10-19 从 `data-preprocessing` 分支同步，不计未纳入 Git 的本地实验材料。
 
 | 部分           | 当前情况                                                                                   |
 | -------------- | ------------------------------------------------------------------------------------------ |
 | 知识库         | 10,000 篇论文、10,000 个段落、1,917,315 个空白分隔词；已达到作业的语料规模要求 |
 | 检索与向量化   | 两种基础检索、三种混合策略、查询生成、数据库及索引构建已实现                               |
 | 评估           | 仓库未提供人工标注集、五查询结果与耗时、检索指标、生成质量或消融结果                       |
-| 推荐与引用     | `recommendation/` 及其子包为占位，待实现基于检索证据的生成                                 |
+| 推荐与引用     | 已实现基于候选标题和摘要的推荐理由生成；`citations/`、`innovation/` 仍为占位 |
 | 数据处理与界面 | `corpus/`、`web/` 为占位；现有数据已准备，但采集清洗流程未包含在当前源码中                 |
 | 命令入口       | `arxiv-paper-recommend` 仅打印问候信息，不能用于检索或启动网页                             |
 
@@ -85,6 +85,32 @@ with SearchEngine() as engine:
 `SearchEngine` 按需创建并复用组件。直接调用底层检索器无需 LLM；HNSW 与混合检索仍需要向量化模型。
 
 BM25 和 HNSW 共同实现 `Retriever[QueryT]`：`search(query, limit=20)` 返回结果列表，`get_score(ids, query)` 返回 ID 到分数的字典。BM25 的查询是关键词列表，`HNSWRetriever` 的查询是单个字符串。`DivisionalHNSWRetriever` 继承 HNSW，通过 `search(query, limit=20, divisional_queries=...)` 执行分路召回与重排，沿用单查询评分接口；分路查询在类内批量编码和召回。引擎的 `dense_retriever` 使用该子类，并将同一实例注入混合检索器。三种混合检索器实现独立的 `HybridRetriever`，只提供检索接口，内部通过公开的 `search`、`get_score` 使用 `HNSWRetriever` 或其子类。完整签名和迁移说明见[检索 API](docs/retrieval.md)。
+
+## 生成推荐理由
+
+推荐生成复用上述 LLM 配置与结构化输出接口。可将任意检索方法返回的 `list[SearchResult]` 传给生成器；下面用 BM25 获取候选，无需向量化模型：
+
+```python
+from arxiv_paper_recommend.recommendation.generation import RecommendationGenerator
+from arxiv_paper_recommend.retrieval.sparse import BM25Retriever
+
+request = "How can retrieval improve language model reasoning?"
+with BM25Retriever() as retriever, RecommendationGenerator() as generator:
+    papers = retriever.search(
+        ["retrieval augmented generation", "reasoning"], limit=30,
+    )
+    recommendations = generator.generate(request, papers, limit=10)
+    for recommendation in recommendations:
+        print(
+            recommendation.rank,
+            recommendation.result.doc_id,
+            recommendation.reason,
+        )
+```
+
+`generate(request, papers, limit=10)` 只使用前 30 个候选并按 `doc_id` 去重，返回最多 10 条 `PaperRecommendation(rank, result, reason)`；`limit` 为 1～10 的整数。候选为空时返回空列表，不调用 LLM。提示词要求理由仅依据候选标题和摘要；模型返回候选之外的论文 ID、重复 ID 或空白理由时会报错。结果保留原始 `SearchResult`，尚不补充作者、来源 URL 或独立引用证据，生成质量仍待评估。
+
+生成器支持 `with` 或手动 `close()`，默认使用 `LLM_MODEL`，也可通过构造器的 `model`、`client` 参数覆盖；注入的客户端由调用方关闭。
 
 ## 选择检索方法
 

@@ -62,10 +62,12 @@ arxiv_paper_recommend/
     │   │   └── generator.py
     │   └── innovation/              # 占位
     ├── corpus/                      # 占位
-    ├── recommendation/              # 占位
-    │   ├── citations/
+    ├── recommendation/
+    │   ├── citations/              # 占位
     │   ├── generation/
-    │   └── innovation/
+    │   │   ├── __init__.py          # PaperRecommendation、RecommendationGenerator
+    │   │   └── baseline_generator.py
+    │   └── innovation/             # 占位
     └── web/                         # 占位
 ```
 
@@ -84,7 +86,8 @@ arxiv_paper_recommend/
 | `retrieval.search_engine` | 方法注册、请求生成、组件复用和方法分派 | BM25 / TITLE_BM25 保留原分数；HNSW 单查询召回，DIVISIONAL_HNSW 与混合算法委托对应检索器 |
 | `retrieval._lifecycle / _validation / _ranking` | 资源所有权、公共校验和排序／RRF | 内部模块，不作为稳定公开 API |
 | `corpus` | 预留采集、清洗、分块及语料统计职责 | 当前为空包；现有数据快照不代表该流程已迁入源码 |
-| `recommendation.generation / citations / innovation` | 预留证据驱动的推荐生成、引用与下游创新职责 | 当前均为空包；查询生成器不能代替下游生成 |
+| `recommendation.generation` | 从候选标题和摘要生成推荐理由，校验输出 ID 并关联原始检索结果 | 不执行检索或补充来源元数据；复用 LLM 配置与资源管理 |
+| `recommendation.citations / innovation` | 预留来源引用与下游创新职责 | 当前为空包；推荐理由不等于独立引用证据 |
 | `web` | 预留用户研究需求输入和推荐展示职责 | 当前为空包；没有可启动的 Web 服务 |
 
 `BM25Retriever` 和 `HNSWRetriever` 分别继承 `Retriever[list[str]]`、`Retriever[str]`，统一 `search(query, limit=20)` 和 `get_score(ids, query)`。`HybridRetriever` 独立于该泛型基类，管理默认检索器和公共校验，稀疏／稠密组件分别接受并默认创建 `TitleAwareBM25Retriever`、`DivisionalHNSWRetriever`。混合检索仅调用检索器公开的 `search` 和 `get_score`；HRRF / SemanticRRF 委托稠密组件完成分路召回及重排，SD Cascade 在稀疏候选内按查询评分筛选。`DenseScoreCache` 只在单次搜索内缓存分数，包括不可评分的 `None`。自建资源通过 `ManagedResource` 注册关闭操作，注入组件由调用方管理。
@@ -119,14 +122,19 @@ vectors.npz + documents.db ── IndexBuilder ──> documents.faiss
 
 底层检索器也可独立调用，`search` 均返回结果列表，`get_score` 返回单查询的 ID 分数映射。分路检索在类内批量召回；混合检索通过公开方法委托召回或按查询评分，不访问其他检索器的私有方法。引擎 HNSW 生成一条整合查询；DIVISIONAL_HNSW 在检索前分别生成分路查询和整合评分查询，因此空召回时也会调用两次 LLM。
 
-目标中的下游流程尚未实现：
+下游推荐生成由调用方显式衔接：
 
 ```text
-list[SearchResult] ──> recommendation（理由生成 + 来源引用） ──> web 展示
-                           当前为占位                         当前为占位
+研究请求 + list[SearchResult] ──> RecommendationGenerator
+                                          ↓
+                               list[PaperRecommendation]
+                                          ↓
+                              来源引用与 web 展示（仍为占位）
 ```
 
-原始 JSONL 保留作者、来源链接、日期和分类，但当前数据库与 `SearchResult` 只保留检索所需字段。实现推荐与网页时，需要在既定职责内补齐元数据读取与证据对应关系，不能假设现有结果已包含这些信息。
+`RecommendationGenerator.generate(request, papers, limit=10)` 消费前 30 个候选并按 `doc_id` 去重，基于标题和摘要生成最多 10 条推荐理由，返回 `PaperRecommendation(rank, result, reason)`；`result` 保留原始 `SearchResult`。空候选不调用 LLM，响应中的未知或重复论文 ID、空白理由会报错。生成器支持上下文管理，仅关闭自建客户端。
+
+原始 JSONL 保留作者、来源链接、日期和分类，但当前数据库与 `SearchResult` 只保留检索所需字段，生成器也不补充这些信息。实现来源引用与网页时，需要在既定职责内补齐元数据读取与证据对应关系。
 
 ## 共享约定
 
@@ -135,4 +143,4 @@ list[SearchResult] ──> recommendation（理由生成 + 来源引用） ─�
 - 构建操作只能由显式调用 `build()` 或模块命令触发；导入构建模块不读取语料或写入索引。
 - PyTorch 和 Transformers 仅在向量化器实例化时导入；检索根包不会因导入 `Retriever` 或 `SearchResult` 而加载引擎依赖。
 - 模块文件使用 `snake_case`，类名使用 `PascalCase`；包级导入为推荐公开入口。
-- 结构变化时同步更新本文。推荐和 Web 功能分别扩展到现有占位包，不混入检索或向量化模块。
+- 结构变化时同步更新本文。推荐和 Web 功能分别扩展到各自的包，不混入检索或向量化模块。
