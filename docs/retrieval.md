@@ -7,10 +7,11 @@
 ## 公开入口
 
 ```python
-from arxiv_paper_recommend.retrieval import SearchEngine, SearchResult
+from arxiv_paper_recommend.retrieval import Retriever, SearchEngine, SearchResult
 from arxiv_paper_recommend.retrieval.sparse import BM25Retriever
 from arxiv_paper_recommend.retrieval.dense import HNSWRetriever
 from arxiv_paper_recommend.retrieval.hybrid import (
+    HybridRetriever,
     HRRFRetriever,
     SemanticRRFRetriever,
     SDCascadeRetriever,
@@ -19,6 +20,21 @@ from arxiv_paper_recommend.retrieval.query import QueryGenerator
 ```
 
 底层检索器不调用 LLM。BM25 需要数据库；HNSW 和所有混合检索器还需要向量索引及 `vectorization` 可选依赖。使用 `SearchEngine` 或 `QueryGenerator` 时，需配置根目录 `.env` 中的 `LLM_API_KEY`、`LLM_API_URL`、`LLM_MODEL`。
+
+## 共同接口
+
+`Retriever[QueryT]` 是 sparse、dense 的泛型抽象基类，包含两个抽象方法：
+
+```text
+search(query: QueryT, limit: int = 20) -> list[SearchResult]
+get_score(ids: list[int], query: QueryT) -> dict[int, float | None]
+```
+
+`BM25Retriever` 继承 `Retriever[list[str]]`，`HNSWRetriever` 继承 `Retriever[str]`。方法签名与返回结构一致，查询类型和分数含义由算法决定；评分保留 ID 首次出现的顺序，不可评分的 ID 返回 `None`。基类复用 `ManagedResource`，支持 `with` 和 `close()`。
+
+`HybridRetriever` 是独立的混合检索抽象基类，仅规定 `search(terms, queries, score_query, limit=20)`；它不继承 `Retriever`，也不提供 `get_score`。三种混合算法保持现有候选选择和融合规则。
+
+仅从 retrieval 根包导入 `Retriever` 或 `SearchResult` 不会加载 FAISS、向量化器或 LLM 客户端依赖；`SearchEngine` 继续延迟导出。
 
 ## 结果与分数
 
@@ -44,17 +60,17 @@ BM25 原始分数越小越相关；内积、RRF 和加权 RRF 越大越相关。
 
 | 方法 | 返回值 | 行为 |
 | --- | --- | --- |
-| `term_search(terms, limit=20)` | `list[SearchResult]` | 匹配任意关键词／短语，按 BM25 升序返回最多 limit 篇 |
-| `get_score(ids, terms)` | `dict[int, float \| None]` | 为指定内部 ID 评分，无结果数量和查询长度限制 |
+| `search(query, limit=20)` | `list[SearchResult]` | 匹配任意关键词／短语，按 BM25 升序返回最多 limit 篇 |
+| `get_score(ids, query)` | `dict[int, float \| None]` | 为指定内部 ID 评分，无结果数量和查询长度限制 |
 
-`terms` 是字符串列表。统一连续空白、转小写、过滤空项并按首次出现顺序去重后，需有 1～20 项；每项必须含可检索字符，多词项作为连续短语匹配，内嵌双引号会转义。搜索使用单次 OR 查询，最终查询长度最多 1,347 字符。
+`query` 是关键词字符串列表。统一连续空白、转小写、过滤空项并按首次出现顺序去重后，需有 1～20 项；每项必须含可检索字符，多词项作为连续短语匹配，内嵌双引号会转义。搜索使用单次 OR 查询，最终查询长度最多 1,347 字符。
 
 `limit` 必须为正整数，不设数量上限。`get_score` 保留 ID 首次出现的顺序；已有但不匹配的论文为 `0.0`，不存在的 ID 为 `None`。关键词合法时，空 ID 列表返回空字典。
 
 ```python
 with BM25Retriever() as retriever:
     terms = ["retrieval augmented generation", "reasoning"]
-    results = retriever.term_search(terms, limit=10)
+    results = retriever.search(query=terms, limit=10)
     scores = retriever.get_score([result.id for result in results], terms)
 ```
 
@@ -64,21 +80,27 @@ with BM25Retriever() as retriever:
 
 | 方法 | 返回值 | 行为 |
 | --- | --- | --- |
-| `search(query, limit=5)` | `dict[str, list[SearchResult]]` | 每条查询独立执行近似召回，返回最多 limit 篇 |
-| `get_score(query_ids)` | `dict[str, dict[int, float \| None]]` | 为每条查询实际指定的 ID 计算精确内积 |
+| `search(query, limit=20)` | `list[SearchResult]` | 对单个字符串查询执行近似召回，返回最多 limit 篇 |
+| `get_score(ids, query)` | `dict[int, float \| None]` | 为单个字符串查询指定的 ID 计算精确内积 |
+| `batch_search(query, limit=5)` | `dict[str, list[SearchResult]]` | 接受字符串或字符串集合，每条查询独立召回最多 limit 篇 |
+| `batch_get_score(query_ids)` | `dict[str, dict[int, float \| None]]` | 为每条查询实际指定的 ID 计算精确内积 |
 
-`query` 接受 `str | set[str]`。单条查询也返回以原始字符串为键的字典；集合排序后批量编码并搜索。`limit` 为正整数，不设数量上限，实际召回数不会超过索引大小。查询必须为非空白字符串；向量形状必须与索引匹配。
+`search`、`get_score` 的 `query` 仅接受单个字符串，分别复用批量搜索和批量评分。`batch_search` 的 `query` 接受 `str | set[str]`，单条查询也返回以原始字符串为键的字典；集合排序后批量编码并搜索。`limit` 为正整数，不设数量上限，实际召回数不会超过索引大小。查询必须为非空白字符串；向量形状必须与索引匹配。
 
-空集合返回 `{}`，空索引为每条合法查询返回 `[]`，均不加载向量化模型。无效 FAISS ID 或数据库中缺失的论文会被过滤，因此结果可能少于 limit。
+`batch_search` 的空集合返回 `{}`；空索引时，`search` 返回 `[]`，`batch_search` 为每条合法查询返回 `[]`，均不加载向量化模型。无效 FAISS ID 或数据库中缺失的论文会被过滤，因此结果可能少于 limit。
 
-`query_ids` 是 `dict[str, list[int]]`。评分要求 `IndexIDMap2` 内积索引，保留查询顺序及每条查询中 ID 首次出现的顺序。索引 ID 集合在首次评分时缓存；仅查询数据库 ID，批量重建有效论文向量，再执行矩阵评分。不在数据库或索引中的 ID 为 `None`；空列表或全部缺失的 ID 无需编码。索引在实例生命周期内应保持不变。
+`batch_get_score` 的 `query_ids` 是 `dict[str, list[int]]`，空映射返回 `{}`。两种评分方法均要求 `IndexIDMap2` 内积索引，保留查询顺序及每条查询中 ID 首次出现的顺序。索引 ID 集合在首次评分时缓存；仅查询数据库 ID，批量重建有效论文向量，再执行矩阵评分。不在数据库或索引中的 ID 为 `None`；空 ID 列表或全部缺失的 ID 无需编码。索引在实例生命周期内应保持不变。
 
 ```python
 query = "How can retrieval improve language model reasoning?"
 with HNSWRetriever() as retriever:
     results = retriever.search(query, limit=10)
-    scores = retriever.get_score({
-        query: [result.id for result in results[query]],
+    scores = retriever.get_score([result.id for result in results], query)
+
+    grouped_results = retriever.batch_search({query, "Evidence for multi-step reasoning"}, limit=10)
+    grouped_scores = retriever.batch_get_score({
+        text: [result.id for result in matches]
+        for text, matches in grouped_results.items()
     })
 ```
 
@@ -86,7 +108,7 @@ with HNSWRetriever() as retriever:
 
 构造器均接受 `(sparse_retriever=None, dense_retriever=None)`。未提供的组件在初始化时创建；初始化失败会关闭已创建的组件。
 
-统一方法：
+三种检索器共同继承 `HybridRetriever`，统一方法：
 
 ```text
 search(terms, queries, score_query, limit=20) -> list[SearchResult]
@@ -204,6 +226,18 @@ handler(request: str, limit: int, *, max_terms: int, max_queries: int) -> list[S
 引擎组件按需创建：BM25 路径不会创建 HNSW 检索器或实例化向量化器。初始化失败时，混合检索器释放已创建的连接。
 
 ## 导入迁移
+
+本次底层 API 直接迁移，不提供旧调用方式或参数别名：
+
+| 原调用 | 当前调用 |
+| --- | --- |
+| BM25 旧关键词搜索 `term_search(terms, limit)` | `search(query=terms, limit=limit)` |
+| BM25 `get_score(ids, terms=terms)` | `get_score(ids, query=terms)`；位置参数调用不变 |
+| HNSW 单查询搜索后读取 `results[query]` | `search(query, limit)` 直接返回列表，默认 limit 从 5 改为 20 |
+| HNSW 分组搜索 `search(query_or_queries, limit)` | `batch_search(query_or_queries, limit)`，默认 limit 仍为 5 |
+| HNSW `get_score(query_ids)` | `batch_get_score(query_ids)`；单查询可用 `get_score(ids, query)` |
+
+`SearchEngine.search` 和三种混合检索器的 `search` 参数及返回结构保持不变。
 
 模块文件已统一为 snake_case，旧模块路径不提供转发文件。推荐改用本页的包级导入。
 

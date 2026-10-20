@@ -33,7 +33,8 @@ arxiv_paper_recommend/
     │   ├── __init__.py
     │   └── qwen3_vectorizer.py
     ├── retrieval/
-    │   ├── __init__.py              # SearchResult；延迟导出 SearchEngine
+    │   ├── __init__.py              # Retriever、SearchResult；延迟导出 SearchEngine
+    │   ├── base.py                  # sparse / dense 的泛型抽象接口
     │   ├── search_result.py
     │   ├── search_engine.py
     │   ├── _lifecycle.py
@@ -72,18 +73,19 @@ arxiv_paper_recommend/
 | --- | --- | --- |
 | `config` | 从根目录 `.env` 加载 LLM 配置，定义默认数据路径 | 不创建客户端或读取语料 |
 | `vectorization` | 模型加载、文本编码、池化与归一化 | 返回向量，不保存归档、不构建索引 |
+| `retrieval.base` | sparse / dense 的泛型 `search`、`get_score` 抽象接口 | 复用资源管理，不统一查询类型或分数尺度 |
 | `retrieval.search_result` | 统一结果数据类 | 不执行检索或评分 |
 | `retrieval.sparse` | 数据库导入、FTS5 构建、关键词召回和 BM25 评分 | 保留原始 BM25 分数 |
-| `retrieval.dense` | 向量索引构建、HNSW 召回、指定 ID 精确评分及结果读取 | 不生成 LLM 查询；评分仅检查数据库 ID |
+| `retrieval.dense` | 向量索引构建、HNSW 单查询及批量召回、指定 ID 精确评分及结果读取 | 不生成 LLM 查询；评分仅检查数据库 ID |
 | `retrieval.query` | LLM 输入生成、结构化响应与生成模型缓存 | 不执行向量化或检索 |
-| `retrieval.hybrid` | 跨检索器候选选择、重排与融合 | 三种策略各自实现算法，复用基类和每次搜索的评分缓存 |
+| `retrieval.hybrid` | 独立的 `HybridRetriever` 检索接口及三种策略的候选选择、重排与融合 | 仅规定 `search`，不提供 `get_score`；复用每次搜索的评分缓存 |
 | `retrieval.search_engine` | 方法注册、请求生成、组件复用和方法分派 | BM25 保留原分数；HNSW 合并后重排；混合算法交给对应检索器 |
 | `retrieval._lifecycle / _validation / _ranking` | 资源所有权、公共校验和排序／RRF | 内部模块，不作为稳定公开 API |
 | `corpus` | 预留采集、清洗、分块及语料统计职责 | 当前为空包；现有数据快照不代表该流程已迁入源码 |
 | `recommendation.generation / citations / innovation` | 预留证据驱动的推荐生成、引用与下游创新职责 | 当前均为空包；查询生成器不能代替下游生成 |
 | `web` | 预留用户研究需求输入和推荐展示职责 | 当前为空包；没有可启动的 Web 服务 |
 
-`BaseHybridRetriever` 管理默认检索器和公共校验，`DenseScoreCache` 只在单次搜索内缓存评分。自建资源通过 `ManagedResource` 注册关闭操作，注入组件由调用方管理。
+`BM25Retriever` 和 `HNSWRetriever` 分别继承 `Retriever[list[str]]`、`Retriever[str]`，统一 `search(query, limit=20)` 和 `get_score(ids, query)`。`HybridRetriever` 独立于该泛型基类，管理默认检索器和公共校验；`DenseScoreCache` 使用 HNSW 批量评分，只在单次搜索内缓存分数。自建资源通过 `ManagedResource` 注册关闭操作，注入组件由调用方管理。
 
 ## 数据流
 
@@ -106,7 +108,7 @@ vectors.npz + documents.db ── IndexBuilder ──> documents.faiss
                                list[SearchResult]
 ```
 
-底层检索器也可独立调用；HNSW 底层返回按查询分组的结果字典，引擎统一返回结果列表。
+底层检索器也可独立调用，`search` 均返回结果列表。HNSW 的 `batch_search` 返回按查询分组的结果字典，`batch_get_score` 返回按查询分组的 ID 分数映射，供引擎和混合检索器复用。
 
 目标中的下游流程尚未实现：
 
@@ -122,6 +124,6 @@ list[SearchResult] ──> recommendation（理由生成 + 来源引用） ─�
 - `documents.id`、FTS5 的 `rowid`、FAISS 向量 ID 和 `SearchResult.id` 对应；论文 `doc_id` 保留版本号，仅移除 `arxiv:` 前缀。
 - 模型、连接和索引封装在可复用对象中。关闭检索器或引擎只关闭其自建资源；注入组件的生命周期由调用方控制。
 - 构建操作只能由显式调用 `build()` 或模块命令触发；导入构建模块不读取语料或写入索引。
-- PyTorch 和 Transformers 仅在向量化器实例化时导入；检索根包不会因导入 `SearchResult` 而加载引擎依赖。
+- PyTorch 和 Transformers 仅在向量化器实例化时导入；检索根包不会因导入 `Retriever` 或 `SearchResult` 而加载引擎依赖。
 - 模块文件使用 `snake_case`，类名使用 `PascalCase`；包级导入为推荐公开入口。
 - 结构变化时同步更新本文。推荐和 Web 功能分别扩展到现有占位包，不混入检索或向量化模块。

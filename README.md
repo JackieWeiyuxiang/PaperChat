@@ -54,7 +54,7 @@ uv run python -m arxiv_paper_recommend.retrieval.dense.build_index
 from arxiv_paper_recommend.retrieval.sparse import BM25Retriever
 
 with BM25Retriever() as retriever:
-    results = retriever.term_search(
+    results = retriever.search(
         ["retrieval augmented generation", "reasoning"], limit=10,
     )
     for result in results:
@@ -83,6 +83,8 @@ with SearchEngine() as engine:
 ```
 
 `SearchEngine` 按需创建并复用组件。直接调用底层检索器无需 LLM；HNSW 与混合检索仍需要向量化模型。
+
+BM25 和 HNSW 共同实现 `Retriever[QueryT]`：`search(query, limit=20)` 返回结果列表，`get_score(ids, query)` 返回 ID 到分数的字典。BM25 的查询是关键词列表，HNSW 的查询是单个字符串；HNSW 多查询使用 `batch_search`、`batch_get_score`。三种混合检索器实现独立的 `HybridRetriever`，只提供检索接口。完整签名和迁移说明见[检索 API](docs/retrieval.md)。
 
 ## 选择检索方法
 
