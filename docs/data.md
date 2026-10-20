@@ -1,10 +1,10 @@
 # 数据与索引构建
 
-本文说明实际语料、存储格式和构建更新流程。使用入口见 [README](../README.md)，检索接口见[检索 API](retrieval.md)，本地模型配置见[向量化](vectorization.md)，课程要求与完成情况见[项目目标与进度](project.md)。统计核对日期：2026-10-19。
+本文说明实际语料、存储格式和构建更新流程。构建器位于 `corpus`，不执行在线检索。使用入口见 [README](../README.md)，检索接口见[检索 API](retrieval.md)，本地模型配置见[向量化](vectorization.md)，课程要求与完成情况见[项目目标与进度](project.md)。统计核对日期：2026-10-19。
 
 ## 数据文件
 
-现有语料于 2026-10-19 从 `data-preprocessing` 分支的 `34de1e1656a43d8f5ac4596b838583d7013c773e` 提交同步，共 10,000 篇论文。该分支的 `data/papers.jsonl`、`data/vectors.npz` 分别对应当前的 `data/raw/papers.jsonl`、`data/raw/vectors.npz`；查询示例移入 `data/example_queries.json`。全部记录的 `source` 字段为 `arxiv_api`；提案中的 Kaggle 数据源属于原计划，不能作为当前快照的实际来源说明。当前 `corpus/` 为空包，未包含采集、清洗、主题筛选和批量向量归档的完整流程；构建器只负责将已准备的数据导入数据库和索引。
+现有语料于 2026-10-19 从 `data-preprocessing` 分支的 `34de1e1656a43d8f5ac4596b838583d7013c773e` 提交同步，共 10,000 篇论文。该分支的 `data/papers.jsonl`、`data/vectors.npz` 分别对应当前的 `data/raw/papers.jsonl`、`data/raw/vectors.npz`；查询示例移入 `data/example_queries.json`。全部记录的 `source` 字段为 `arxiv_api`；提案中的 Kaggle 数据源属于原计划，不能作为当前快照的实际来源说明。当前 `corpus/` 提供数据库与向量索引构建器，尚未包含采集、清洗、主题筛选和批量向量归档的完整流程；构建器只负责将已准备的数据导入数据库和索引。
 
 | 文件 | 内容 |
 | --- | --- |
@@ -65,14 +65,14 @@ JSONL 至少需要非空字符串 `doc_id` 和 `title`，摘要可为字符串�
 | `title` | `TEXT NOT NULL` | 标题 |
 | `abstract` | `TEXT` | 可为空的摘要 |
 
-`documents_fts` 使用外部内容表 `documents`，通过 `porter` 分词器索引标题和摘要，`doc_id` 不参与全文索引。
+存储字段 `id`、`doc_id` 在读取为 `SearchResult` 时对应 `document_id`、`arxiv_id`；重构不改变现有数据库或归档格式。 `documents`，通过 `porter` 分词器索引标题和摘要，`doc_id` 不参与全文索引。
 
 ## 构建数据库
 
 在项目根目录运行：
 
 ```powershell
-uv run python -m arxiv_paper_recommend.retrieval.sparse.build_database
+uv run python -m arxiv_paper_recommend.corpus.build_database
 ```
 
 | 参数 | 默认值 |
@@ -82,14 +82,14 @@ uv run python -m arxiv_paper_recommend.retrieval.sparse.build_database
 
 重复运行会更新同一 `doc_id` 的标题与摘要，保留已有整数 ID，不删除源文件之外的旧记录。导入与全文索引重建在同一事务中完成，失败时回滚；重复论文 ID 或无效字段会报告源文件行号。
 
-Python 入口为 `retrieval.sparse.build_database.DatabaseBuilder(source_path, database_path).build()`，返回导入记录数。
+Python 入口为 `corpus.build_database.DatabaseBuilder(source_path, database_path).build()`，返回导入记录数。
 
 ## 构建向量索引
 
 先完成数据库构建，再运行：
 
 ```powershell
-uv run python -m arxiv_paper_recommend.retrieval.dense.build_index
+uv run python -m arxiv_paper_recommend.corpus.build_index
 ```
 
 | 参数 | 默认值 |
@@ -101,10 +101,10 @@ uv run python -m arxiv_paper_recommend.retrieval.dense.build_index
 例如，使用自定义文件：
 
 ```powershell
-uv run python -m arxiv_paper_recommend.retrieval.dense.build_index --source data/raw/vectors.npz --database data/documents.db --index data/custom.faiss
+uv run python -m arxiv_paper_recommend.corpus.build_index --source data/raw/vectors.npz --database data/documents.db --index data/custom.faiss
 ```
 
-Python 入口为 `retrieval.dense.build_index.IndexBuilder(source_path, database_path, index_path).build()`，返回写入的向量数。导入模块不会读取数据或构建索引。
+Python 入口为 `corpus.build_index.IndexBuilder(source_path, database_path, index_path).build()`，返回写入的向量数。导入模块不会读取数据或构建索引。
 
 构建器只读取 NPZ 的 `vectors` 和 `doc_ids`，不使用 `chunk_ids` 或校验 `metadata`。当前实现要求每个规范化论文 ID 只对应一个向量；若将一篇论文切成多段，不能直接重复 `doc_id` 写入现有归档，需要先调整 ID 与存储设计。
 

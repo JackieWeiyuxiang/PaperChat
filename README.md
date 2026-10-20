@@ -1,140 +1,102 @@
 # arxiv-paper-recommend
 
-基于 arXiv 标题与摘要的检索增强论文推荐项目，用于 AI6127（2026）课程作业。目标是根据自然语言研究需求生成 Top-10 论文推荐、简短推荐理由和来源引用。
+基于 arXiv 标题与摘要的检索增强论文推荐项目，用于 AI6127（2026）课程作业。通过 Python API 检索论文，并基于候选内容生成最多 10 条推荐及简短理由。
 
-当前已实现检索与基础推荐生成的 Python API：BM25、单查询与分路 HNSW、三种混合检索策略、Qwen3 本地向量化，以及 LLM 查询生成。可直接提供关键词／语义查询，也可通过 `SearchEngine` 从研究请求生成检索输入；再将检索结果交给 `RecommendationGenerator`，生成基于候选标题和摘要的推荐理由。独立的来源引用模块仍待实现。
+## 项目能力
 
-## 当前进度
+已有 10,000 篇论文的数据快照、SQLite FTS5 数据库和 FAISS 向量索引。支持关键词检索、本地 Qwen3 向量化、LLM 查询生成及推荐理由生成。
 
-以下代码状态依据 2026-10-20 的工作区整理，数据已于 2026-10-19 从 `data-preprocessing` 分支同步，不计未纳入 Git 的本地实验材料。
+| 检索方法 | 流程 | 分数方向 |
+| --- | --- | --- |
+| `BM25` | 关键词与短语匹配 | 越小越相关 |
+| `TITLE_WEIGHTED_BM25` | 标题权重为 3、摘要权重为 1 的 BM25 | 越小越相关 |
+| `HNSW` | 单查询近似向量召回 | 越大越相关 |
+| `MULTI_QUERY_HNSW` | 多查询召回，合并后按主查询重排 | 越大越相关 |
+| `HRRF` | 两路候选分别重排，再融合排名 | 越大越相关 |
+| `SEMANTIC_RRF` | 按逐篇语义相似度加权 RRF | 越大越相关 |
+| `SD_CASCADE` | BM25 候选内执行多查询选择与重排 | 越大越相关 |
 
-| 部分           | 当前情况                                                                                   |
-| -------------- | ------------------------------------------------------------------------------------------ |
-| 知识库         | 10,000 篇论文、10,000 个段落、1,917,315 个空白分隔词；已达到作业的语料规模要求 |
-| 检索与向量化   | 两种基础检索、三种混合策略、查询生成、数据库及索引构建已实现                               |
-| 评估           | 仓库未提供人工标注集、五查询结果与耗时、检索指标、生成质量或消融结果                       |
-| 推荐与引用     | 已实现基于候选标题和摘要的推荐理由生成；`citations/`、`innovation/` 仍为占位 |
-| 数据处理与界面 | `corpus/`、`web/` 为占位；现有数据已准备，但采集清洗流程未包含在当前源码中                 |
-| 命令入口       | `arxiv-paper-recommend` 仅打印问候信息，不能用于检索或启动网页                             |
-
-完整的作业要求、提案与实际实现差异见[项目目标与进度](docs/project.md)；待完成的评估见[实验与评估](docs/evaluation.md)。三种混合策略的效果尚无人工评估支持，不预设哪种方法更优。
+不同方法的分数不能直接比较。目前没有正式质量或性能评估结论。独立来源引用、Web 界面和完整采集清洗流程仍待实现，详见[项目目标与进度](docs/project.md)。
 
 ## 安装
 
-要求 Python >= 3.14，使用 uv 管理依赖；SQLite 需支持 FTS5。在项目根目录运行：
+要求 Python >= 3.14、uv，以及支持 FTS5 的 SQLite。在项目根目录运行：
 
 ```powershell
 uv sync
 ```
 
-HNSW 文本查询、所有混合检索和本地向量化还需要模型依赖：
+HNSW、混合检索及本地向量化需要额外模型依赖：
 
 ```powershell
 uv sync --extra vectorization
 ```
 
-## 准备数据
-
-默认输入为 `data/raw/papers.jsonl` 和 `data/raw/vectors.npz`。当前仓库包含这两个快照及 `data/documents.db`、`data/documents.faiss`。若需要从原始快照重建，依次构建数据库和向量索引；已有匹配的数据库和索引时可跳过。
+仓库已有匹配的 `data/documents.db` 和 `data/documents.faiss`，可直接使用。需要从原始快照重建时，依次运行：
 
 ```powershell
-uv run python -m arxiv_paper_recommend.retrieval.sparse.build_database
-uv run python -m arxiv_paper_recommend.retrieval.dense.build_index
+uv run python -m arxiv_paper_recommend.corpus.build_database
+uv run python -m arxiv_paper_recommend.corpus.build_index
 ```
 
-默认输出为 `data/documents.db`、`data/documents.faiss`。自定义路径、数据格式及更新规则见[数据与构建说明](docs/data.md)。
+自定义路径和更新规则见[数据与索引构建](docs/data.md)。项目当前使用 Python API，没有检索命令或 Web 启动入口。
 
-[查询示例](data/example_queries.json)包含 40 条中英文研究请求，覆盖十个主题，可用于试用检索；这些示例尚无人工相关性标注。
+## 最小检索示例
 
-## 快速开始
-
-直接使用 BM25 无需模型依赖或 LLM 配置：
+直接调用 BM25 无需配置 LLM，也无需安装模型依赖：
 
 ```python
 from arxiv_paper_recommend.retrieval.sparse import BM25Retriever
 
 with BM25Retriever() as retriever:
-    results = retriever.search(
+    papers = retriever.search(
         ["retrieval augmented generation", "reasoning"], limit=10,
     )
-    for result in results:
-        print(result.doc_id, result.title, result.score)
+    for paper in papers:
+        print(paper.arxiv_id, paper.title, paper.score)
 ```
 
-从自然语言研究请求检索时，先将 [.env.example](.env.example) 复制为根目录 `.env`，配置 `LLM_API_KEY`、`LLM_API_URL` 和 `LLM_MODEL`。查询生成调用 Responses API 的结构化输出，服务与模型需支持当前调用参数，详见[查询生成配置](docs/retrieval.md#querygenerator)。
+底层检索器还提供 `score(query, document_ids)`，为指定数据库整数 ID 评分。完整接口及分数含义见[检索 API](docs/retrieval.md)。
+
+## 自然语言检索与推荐
+
+首次使用时，将 [.env.example](.env.example) 复制为根目录 `.env`，填写 `LLM_API_KEY`、`LLM_API_URL` 和 `LLM_MODEL`；已有文件时直接编辑。
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-已有 `.env` 时直接编辑现有配置。安装向量化依赖后可使用：
+服务与模型需支持代码所用的结构化输出接口及参数，配置规则见[查询生成](docs/retrieval.md#querygenerator)。以下示例还需要向量化依赖；首次创建向量化器会加载模型，远程模型尚未缓存时会下载文件。
 
 ```python
+from arxiv_paper_recommend.recommendation import RecommendationGenerator
 from arxiv_paper_recommend.retrieval import SearchEngine
 
-with SearchEngine() as engine:
-    results = engine.search(
-        "How can retrieval improve language model reasoning?",
-        method="HRRF",
-        limit=10,
-    )
-    for result in results:
-        print(result.doc_id, result.title, result.score)
-```
-
-`SearchEngine` 按需创建并复用组件。直接调用底层检索器无需 LLM；HNSW 与混合检索仍需要向量化模型。
-
-BM25 和 HNSW 共同实现 `Retriever[QueryT]`：`search(query, limit=20)` 返回结果列表，`get_score(ids, query)` 返回 ID 到分数的字典。BM25 的查询是关键词列表，`HNSWRetriever` 的查询是单个字符串。`DivisionalHNSWRetriever` 继承 HNSW，通过 `search(query, limit=20, divisional_queries=...)` 执行分路召回与重排，沿用单查询评分接口；分路查询在类内批量编码和召回。引擎的 `dense_retriever` 使用该子类，并将同一实例注入混合检索器。三种混合检索器实现独立的 `HybridRetriever`，只提供检索接口，内部通过公开的 `search`、`get_score` 使用 `HNSWRetriever` 或其子类。完整签名和迁移说明见[检索 API](docs/retrieval.md)。
-
-## 生成推荐理由
-
-推荐生成复用上述 LLM 配置与结构化输出接口。可将任意检索方法返回的 `list[SearchResult]` 传给生成器；下面用 BM25 获取候选，无需向量化模型：
-
-```python
-from arxiv_paper_recommend.recommendation.generation import RecommendationGenerator
-from arxiv_paper_recommend.retrieval.sparse import BM25Retriever
-
 request = "How can retrieval improve language model reasoning?"
-with BM25Retriever() as retriever, RecommendationGenerator() as generator:
-    papers = retriever.search(
-        ["retrieval augmented generation", "reasoning"], limit=30,
-    )
+with SearchEngine() as engine, RecommendationGenerator() as generator:
+    papers = engine.search(request, method="HRRF", limit=30)
     recommendations = generator.generate(request, papers, limit=10)
     for recommendation in recommendations:
         print(
             recommendation.rank,
-            recommendation.result.doc_id,
+            recommendation.paper.arxiv_id,
             recommendation.reason,
         )
 ```
 
-`generate(request, papers, limit=10)` 只使用前 30 个候选并按 `doc_id` 去重，返回最多 10 条 `PaperRecommendation(rank, result, reason)`；`limit` 为 1～10 的整数。候选为空时返回空列表，不调用 LLM。提示词要求理由仅依据候选标题和摘要；模型返回候选之外的论文 ID、重复 ID 或空白理由时会报错。结果保留原始 `SearchResult`，尚不补充作者、来源 URL 或独立引用证据，生成质量仍待评估。
-
-生成器支持 `with` 或手动 `close()`，默认使用 `LLM_MODEL`，也可通过构造器的 `model`、`client` 参数覆盖；注入的客户端由调用方关闭。
-
-## 选择检索方法
-
-三种混合方法分别为 HRRF（Hierarchical Reciprocal Rank Fusion，分层倒数排名融合）、SemanticRRF（Semantic-Weighted Reciprocal Rank Fusion，语义加权倒数排名融合）和 SDCascade（Sparse-to-Dense Cascade，稀疏到稠密级联检索）。代码类名使用简称并保留 `Retriever` 后缀。
-
-| SearchEngine 方法 | 检索流程                              | 最终分数               |
-| ----------------- | ------------------------------------- | ---------------------- |
-| `BM25`            | 关键词／短语匹配                      | 原始 BM25，越小越相关  |
-| `HNSW`            | 生成一条整合查询，执行单查询近似召回  | 内积相似度，越大越相关 |
-| `DIVISIONAL_HNSW` | 分路近似召回，合并后按整合查询重排    | 内积相似度，越大越相关 |
-| `HRRF`            | 两路候选分别重排，再融合新排名        | 等权 RRF               |
-| `SEMANTIC_RRF`    | 两路召回，按逐篇语义相似度加权        | 语义加权 RRF           |
-| `SD_CASCADE`      | BM25 筛选候选，候选内多查询选择与重排 | 内积相似度             |
-
-不同方法的分数不能直接比较。方法名不区分大小写；完整参数、算法规则和独立检索器示例见[检索 API](docs/retrieval.md)。
+`SearchEngine` 按需创建并复用组件；方法名不区分大小写。推荐生成也可消费直接调用 BM25 得到的候选。理由仅依据候选标题和摘要，结果保留原始检索对象；来源链接和独立引用证据尚未补充。候选限制与输出校验见[推荐生成](docs/recommendation.md)。
 
 ## 文档导航
 
-| 文档                                               | 内容                                               |
-| -------------------------------------------------- | -------------------------------------------------- |
-| [项目目标与进度](docs/project.md)                  | 作业要求、方案目标、实现状态、差异与剩余交付       |
-| [检索 API](docs/retrieval.md)                      | 公开接口、排名规则、分数含义、资源管理和导入迁移   |
-| [向量化](docs/vectorization.md)                    | 模型配置、编码接口、设备与批处理                   |
-| [数据与构建](docs/data.md)                         | 实际来源、语料统计、数据格式、归档元数据与构建更新 |
-| [实验与评估](docs/evaluation.md)                   | 人工标注方案、指标、实验记录与交付要求             |
-| [检索方案概览（PDF）](docs/retrieval_overview.pdf) | 现有检索架构与五种方法的图文简介                   |
-| [项目结构](structure.md)                           | 模块职责、依赖边界和数据流                         |
+| 文档 | 内容 |
+| --- | --- |
+| [项目结构](structure.md) | 模块职责、依赖方向与数据流 |
+| [检索 API](docs/retrieval.md) | 检索接口、七种方法、分数与资源管理 |
+| [推荐生成](docs/recommendation.md) | 生成接口、候选与响应校验 |
+| [向量化](docs/vectorization.md) | 模型、设备、编码和查询指令 |
+| [数据与索引构建](docs/data.md) | 来源、统计、存储格式和离线构建 |
+| [接口迁移](docs/migration.md) | 不兼容变更及历史迁移记录 |
+| [项目目标与进度](docs/project.md) | 课程要求、完成情况与剩余交付 |
+| [实验与评估](docs/evaluation.md) | 人工标注、指标与待执行实验 |
+
+[查询示例](data/example_queries.json)包含 40 条中英文研究请求，覆盖十个主题，尚无人工相关性标注。

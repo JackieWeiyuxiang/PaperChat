@@ -1,11 +1,12 @@
 """Weight two-list RRF by each candidate's semantic similarity."""
 
+from collections.abc import Sequence
 from dataclasses import replace
 
 from .._ranking import rank_ids, rrf_scores
+from ..constants import DEFAULT_RESULT_LIMIT
 from ..search_result import SearchResult
 from .base import HybridRetriever
-from .constants import DEFAULT_RESULT_LIMIT
 
 
 class SemanticRRFRetriever(HybridRetriever):
@@ -18,19 +19,19 @@ class SemanticRRFRetriever(HybridRetriever):
 		limit: int = DEFAULT_RESULT_LIMIT,
 		*,
 		title_weight: float | None = None,
-		divisional_queries: str | set[str] | None = None,
+		recall_queries: Sequence[str] | None = None,
 	) -> list[SearchResult]:
 		"""Multiply each complete RRF score by cosine + 1; None gets weight zero."""
-		self._validate_inputs(query, limit, divisional_queries)
+		self._validate_inputs(query, limit, recall_queries)
 		sparse_limit = (limit + 1) // 2
 		sparse_results = self.sparse_retriever.search(
 			terms, limit=sparse_limit, title_weight=title_weight
 		)
-		sparse_candidates = {result.id: result for result in sparse_results}
-		sparse_scores = {result.id: result.score for result in sparse_results}
+		sparse_candidates = {result.document_id: result for result in sparse_results}
+		sparse_scores = {result.document_id: result.score for result in sparse_results}
 		sparse_ids = rank_ids(sparse_candidates, sparse_scores)[:sparse_limit]
 		dense_candidates, cache = self._dense_candidates(
-			query, limit, divisional_queries=divisional_queries
+			query, limit, recall_queries=recall_queries
 		)
 		if not sparse_candidates and not dense_candidates:
 			return []

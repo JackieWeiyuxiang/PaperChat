@@ -1,5 +1,5 @@
-"""Baseline generation over retrieved arXiv papers."""
+"""Structured recommendation generation over retrieved arXiv papers."""
 
-from .baseline_generator import PaperRecommendation, RecommendationGenerator
+from .generator import RecommendationGenerator
 
-__all__ = ["PaperRecommendation", "RecommendationGenerator"]
+__all__ = ["RecommendationGenerator"]

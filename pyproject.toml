@@ -1,7 +1,7 @@
 [project]
 name = "arxiv-paper-recommend"
 version = "0.1.0"
-description = "Add your description here"
+description = "Retrieval-augmented arXiv paper recommendations with sparse, dense and hybrid search"
 readme = "README.md"
 authors = [
     { name = "CIA", email = "2ndaryuan@gmail.com" }
@@ -20,9 +20,6 @@ vectorization = [
     "torch>=2.10,<3",
     "transformers>=4.57.1,<5",
 ]
-
-[project.scripts]
-arxiv-paper-recommend = "arxiv_paper_recommend:main"
 
 [build-system]
 requires = ["uv_build>=0.12.1,<0.13.0"]

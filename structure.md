@@ -1,146 +1,104 @@
 # 项目结构与模块职责
 
-本文面向维护者，说明当前工作区目录、职责边界和数据流。安装与快速开始见 [README](README.md)，课程目标与实现状态见[项目目标与进度](docs/project.md)，接口与算法见[检索 API](docs/retrieval.md)，模型配置见[向量化](docs/vectorization.md)，存储格式见[数据与构建](docs/data.md)，评估设计见[实验与评估](docs/evaluation.md)。
+本文面向维护者，定义模块职责、依赖方向和数据流。安装使用见 [README](README.md)，公开契约见[检索 API](docs/retrieval.md)与[推荐生成](docs/recommendation.md)。结构变更时同步更新本文。
 
 ## 目录
 
 ```text
 arxiv_paper_recommend/
-├── README.md
-├── structure.md
-├── AGENTS.md
-├── pyproject.toml / uv.lock          # 依赖、Python 版本和命令入口
-├── .env.example                     # LLM 配置示例
-├── docs/
-│   ├── retrieval.md
-│   ├── vectorization.md
-│   ├── data.md
-│   ├── project.md                   # 课程要求、方案差异与实现进度
-│   ├── evaluation.md                # 待执行评估设计与交付要求
-│   └── retrieval_overview.pdf       # 检索技术概览
-├── data.db                         # 历史文件，不用于当前默认接口
+├── README.md / structure.md / AGENTS.md
+├── pyproject.toml / uv.lock / .env.example
+├── docs/                           # API、数据、模型、迁移、课程与评估说明
+├── data.db                         # 历史数据，不属于当前默认数据流
 ├── data/
 │   ├── raw/papers.jsonl
 │   ├── raw/vectors.npz
 │   ├── documents.db
 │   ├── documents.faiss
-│   ├── example_queries.json         # 40 条中英文研究请求，尚无相关性标注
-│   └── statistics.md                # 本地报告，被 Git 忽略
+│   └── example_queries.json
 └── src/arxiv_paper_recommend/
-    ├── __init__.py                  # main()，当前仅打印问候信息
-    ├── config.py
+    ├── __init__.py                 # 包说明，无命令入口
+    ├── config.py                  # 默认路径、按需读取 LLMSettings
+    ├── common/
+    │   ├── lifecycle.py
+    │   └── validation.py
+    ├── llm.py                     # 共享结构化生成及客户端所有权
+    ├── corpus/
+    │   ├── build_database.py
+    │   └── build_index.py
     ├── vectorization/
-    │   ├── __init__.py
     │   └── qwen3_vectorizer.py
     ├── retrieval/
-    │   ├── __init__.py              # Retriever、SearchResult；延迟导出 SearchEngine
-    │   ├── base.py                  # sparse / dense 的泛型抽象接口
-    │   ├── search_result.py
-    │   ├── search_engine.py
-    │   ├── _lifecycle.py
-    │   ├── _validation.py
-    │   ├── _ranking.py
+    │   ├── base.py / constants.py / search_result.py
+    │   ├── search_engine.py / _ranking.py
     │   ├── sparse/
-    │   │   ├── __init__.py
     │   │   ├── bm25.py
-    │   │   ├── title_aware_bm25.py   # 可配置标题权重的 BM25 子类
-    │   │   └── build_database.py
+    │   │   └── title_weighted_bm25.py
     │   ├── dense/
-    │   │   ├── __init__.py
-    │   │   ├── hnsw.py    # 单查询召回与精确评分
-    │   │   ├── divisional_hnsw.py # 分路召回、重排与内部批量计算
-    │   │   └── build_index.py
+    │   │   ├── hnsw.py
+    │   │   └── multi_query_hnsw.py
     │   ├── hybrid/
-    │   │   ├── __init__.py
-    │   │   ├── base.py
-    │   │   ├── constants.py
-    │   │   ├── hrrf.py
-    │   │   ├── semantic_rrf.py
-    │   │   └── sd_cascade.py
-    │   ├── query/
-    │   │   ├── __init__.py
-    │   │   └── generator.py
-    │   └── innovation/              # 占位
-    ├── corpus/                      # 占位
+    │   │   ├── base.py / constants.py
+    │   │   └── hrrf.py / semantic_rrf.py / sd_cascade.py
+    │   ├── query/generator.py
+    │   └── innovation/            # 规划占位
     ├── recommendation/
-    │   ├── citations/              # 占位
-    │   ├── generation/
-    │   │   ├── __init__.py          # PaperRecommendation、RecommendationGenerator
-    │   │   └── baseline_generator.py
-    │   └── innovation/             # 占位
-    └── web/                         # 占位
+    │   ├── models.py
+    │   ├── generation/generator.py
+    │   ├── citations/             # 规划占位
+    │   └── innovation/            # 规划占位
+    └── web/                       # 规划占位
 ```
 
-## 职责边界
+各包包含相应的 `__init__.py`。本地 `experiment/` 与 `data/statistics.md` 被 Git 忽略，不属于可分发的实现或评估证据。
 
-| 模块 | 负责 | 边界 |
+## 职责与依赖
+
+| 模块 | 职责 | 依赖边界 |
 | --- | --- | --- |
-| `config` | 从根目录 `.env` 加载 LLM 配置，定义默认数据路径 | 不创建客户端或读取语料 |
-| `vectorization` | 模型加载、文本编码、池化与归一化 | 返回向量，不保存归档、不构建索引 |
-| `retrieval.base` | sparse / dense 的泛型 `search`、`get_score` 抽象接口 | 复用资源管理，不统一查询类型或分数尺度 |
-| `retrieval.search_result` | 统一结果数据类 | 不执行检索或评分 |
-| `retrieval.sparse` | 数据库导入、FTS5 构建、关键词召回、普通及标题加权 BM25 评分 | 保留各自的原始 BM25 分数，复用同一索引 |
-| `retrieval.dense` | 向量索引构建、HNSW 单查询与分路召回、去重重排、批量操作及指定 ID 精确评分 | 不生成 LLM 查询；评分核对数据库 ID，不读取标题和摘要 |
-| `retrieval.query` | LLM 输入生成、结构化响应与生成模型缓存 | 不执行向量化或检索 |
-| `retrieval.hybrid` | 独立的 `HybridRetriever` 检索接口及三种策略的候选选择、重排与融合 | 仅规定 `search`，不提供 `get_score`；复用每次搜索的评分缓存 |
-| `retrieval.search_engine` | 方法注册、请求生成、组件复用和方法分派 | BM25 / TITLE_BM25 保留原分数；HNSW 单查询召回，DIVISIONAL_HNSW 与混合算法委托对应检索器 |
-| `retrieval._lifecycle / _validation / _ranking` | 资源所有权、公共校验和排序／RRF | 内部模块，不作为稳定公开 API |
-| `corpus` | 预留采集、清洗、分块及语料统计职责 | 当前为空包；现有数据快照不代表该流程已迁入源码 |
-| `recommendation.generation` | 从候选标题和摘要生成推荐理由，校验输出 ID 并关联原始检索结果 | 不执行检索或补充来源元数据；复用 LLM 配置与资源管理 |
-| `recommendation.citations / innovation` | 预留来源引用与下游创新职责 | 当前为空包；推荐理由不等于独立引用证据 |
-| `web` | 预留用户研究需求输入和推荐展示职责 | 当前为空包；没有可启动的 Web 服务 |
+| `common` | 资源所有权、上下文管理、基本输入校验 | 仅依赖标准库 |
+| `config` | 默认数据路径、构造时读取 LLM 配置 | 导入时不读取 `.env`、不创建客户端 |
+| `llm` | 共享结构化调用、解析结果检查及客户端关闭 | 依赖 `common`、`config`；不包含业务提示词 |
+| `corpus` | 导入准备好的语料、构建 FTS5 和 FAISS 索引 | 不执行在线检索；采集清洗和向量归档流程尚未实现 |
+| `vectorization` | 模型加载、批量编码、池化与归一化 | 不保存归档或构建索引 |
+| `retrieval.sparse / dense` | 召回和指定 ID 评分 | 不调用 LLM；查询类型和原始分数尺度由算法决定 |
+| `retrieval.hybrid` | 候选选择、重排和融合 | 通过稀疏／稠密组件公开接口协作；缓存仅限单次搜索 |
+| `retrieval.query` | 从研究请求生成关键词及语义查询 | 依赖共享 LLM 层，不执行检索或向量化 |
+| `retrieval.search_engine` | 注册方法、生成输入、延迟创建和复用组件 | 不承担算法内部排名逻辑 |
+| `recommendation.models` | 推荐记录及原始检索结果关联 | 不依赖 LLM 模块 |
+| `recommendation.generation` | 基于候选标题和摘要生成理由、校验论文与响应 | 依赖共享 LLM 层及公开检索结果模型，不访问检索内部工具 |
+| `citations / innovation / web` | 保留引用、创新和界面扩展边界 | 当前为空包，不代表已有功能 |
 
-`BM25Retriever` 和 `HNSWRetriever` 分别继承 `Retriever[list[str]]`、`Retriever[str]`，统一 `search(query, limit=20)` 和 `get_score(ids, query)`。`HybridRetriever` 独立于该泛型基类，管理默认检索器和公共校验，稀疏／稠密组件分别接受并默认创建 `TitleAwareBM25Retriever`、`DivisionalHNSWRetriever`。混合检索仅调用检索器公开的 `search` 和 `get_score`；HRRF / SemanticRRF 委托稠密组件完成分路召回及重排，SD Cascade 在稀疏候选内按查询评分筛选。`DenseScoreCache` 只在单次搜索内缓存分数，包括不可评分的 `None`。自建资源通过 `ManagedResource` 注册关闭操作，注入组件由调用方管理。
-
-三种 hybrid 的接口均为 `search(terms, query, limit=20, *, title_weight=None, divisional_queries=None)`，不再接受 `queries` 参数。标题权重用于稀疏召回和 HRRF 补评分；可选参数直接透传，组件收到 `None` 时回退到父类基础逻辑。SD Cascade 在未提供分路时使用 `query` 进行候选内筛选，提供时使用分路查询，最终始终按 `query` 进行语义重排；空集合不回退到评分查询。引擎通过 `divisional_queries` 传入生成的分路查询，省略标题权重。
-
-`DivisionalHNSWRetriever` 继承 `HNSWRetriever`，沿用构造器、精确评分与资源管理；`search(query, limit=20, *, divisional_queries=None)` 在未提供分路查询时回退到父类单查询，提供时各分路召回、合并去重，再用 query 评分重排。分路召回的批量计算仅在类内使用。引擎的 `dense_retriever` 使用该子类，并向混合检索器注入同一实例，让引擎各条稠密路径共享资源。
-
-`TitleAwareBM25Retriever` 继承 `BM25Retriever`，由 sparse 包公开导出，沿用父类构造器和资源管理。`search(query, limit=20, *, title_weight=None)` 与 `get_score(ids, query, *, title_weight=None)` 在省略权重时回退到父类；显式传入有限非负权重时，内部接口仅接收 `title_weight`，摘要权重在 SQL 中固定为 `1.0`，doc_id 为未索引字段，不参与评分。搜索和指定 ID 评分复用父类私有方法，权重仅作用于本次调用，不保存在实例上。引擎的 `sparse_retriever` 使用该子类，按需创建或通过同名参数注入，供 BM25、TITLE_BM25 和混合检索共享同一实例。TITLE_BM25 每次显式传入 `title_weight=3.0`；BM25 和混合检索不传权重，使用普通 BM25。
+`Retriever` 统一稀疏／稠密的搜索与评分契约；`HybridRetriever` 独立定义混合搜索，不提供单独评分接口。共享限值位于 `retrieval.constants`，混合算法专用预算位于 `retrieval.hybrid.constants`，排序与 RRF 位于检索内部模块 `_ranking`。
 
 ## 数据流
 
-离线构建：
+离线构建需显式调用 `build()` 或对应模块命令：
 
 ```text
 papers.jsonl ── DatabaseBuilder ──> documents.db
 vectors.npz + documents.db ── IndexBuilder ──> documents.faiss
 ```
 
-在线检索：
+构建器分别位于 `corpus.build_database`、`corpus.build_index`，不在包根导出。导入构建模块不会读取语料或写入数据。
 
 ```text
-研究请求 ── SearchEngine ── QueryGenerator ── 关键词 / 语义查询 / 评分查询
+研究请求 ── SearchEngine ── QueryGenerator ── terms / recall_queries / query
                     └── 方法分派
-                        ├── BM25 / TITLE_BM25 ── TitleAwareBM25Retriever ── documents.db
-                        ├── HNSW / DIVISIONAL_HNSW ── DivisionalHNSWRetriever
-                        │                              └── Qwen3Vectorizer + 索引 + 数据库
-                        └── 混合检索器 ── 复用 TitleAwareBM25Retriever 与 DivisionalHNSWRetriever
+                        ├── 稀疏检索 ── documents.db
+                        ├── 稠密检索 ── Qwen3Vectorizer + documents.faiss + documents.db
+                        └── 混合检索 ── 共享稀疏与稠密组件
                                       ↓
                                list[SearchResult]
+研究请求 + 检索结果 ── RecommendationGenerator ── list[PaperRecommendation]
 ```
 
-底层检索器也可独立调用，`search` 均返回结果列表，`get_score` 返回单查询的 ID 分数映射。分路检索在类内批量召回；混合检索通过公开方法委托召回或按查询评分，不访问其他检索器的私有方法。引擎 HNSW 生成一条整合查询；DIVISIONAL_HNSW 在检索前分别生成分路查询和整合评分查询，因此空召回时也会调用两次 LLM。
+下游生成由调用方显式衔接。当前结果不补充原始语料中的作者、日期和 URL，也不提供独立引用证据。
 
-下游推荐生成由调用方显式衔接：
+## 维护约定
 
-```text
-研究请求 + list[SearchResult] ──> RecommendationGenerator
-                                          ↓
-                               list[PaperRecommendation]
-                                          ↓
-                              来源引用与 web 展示（仍为占位）
-```
-
-`RecommendationGenerator.generate(request, papers, limit=10)` 消费前 30 个候选并按 `doc_id` 去重，基于标题和摘要生成最多 10 条推荐理由，返回 `PaperRecommendation(rank, result, reason)`；`result` 保留原始 `SearchResult`。空候选不调用 LLM，响应中的未知或重复论文 ID、空白理由会报错。生成器支持上下文管理，仅关闭自建客户端。
-
-原始 JSONL 保留作者、来源链接、日期和分类，但当前数据库与 `SearchResult` 只保留检索所需字段，生成器也不补充这些信息。实现来源引用与网页时，需要在既定职责内补齐元数据读取与证据对应关系。
-
-## 共享约定
-
-- `documents.id`、FTS5 的 `rowid`、FAISS 向量 ID 和 `SearchResult.id` 对应；论文 `doc_id` 保留版本号，仅移除 `arxiv:` 前缀。
-- 模型、连接和索引封装在可复用对象中。关闭检索器或引擎只关闭其自建资源；注入组件的生命周期由调用方控制。
-- 构建操作只能由显式调用 `build()` 或模块命令触发；导入构建模块不读取语料或写入索引。
-- PyTorch 和 Transformers 仅在向量化器实例化时导入；检索根包不会因导入 `Retriever` 或 `SearchResult` 而加载引擎依赖。
-- 模块文件使用 `snake_case`，类名使用 `PascalCase`；包级导入为推荐公开入口。
-- 结构变化时同步更新本文。推荐和 Web 功能分别扩展到各自的包，不混入检索或向量化模块。
+- 存储层 `documents.id`、FTS5 rowid、FAISS ID 与 `SearchResult.document_id` 对应；存储层 `doc_id` 映射为 `SearchResult.arxiv_id`，保留论文版本号。
+- 仅关闭自建资源；注入组件由调用方管理。关闭幂等，关闭后的对象不能继续操作。
+- 包级导入为业务 API 推荐入口；检索根包延迟导出引擎，推荐根包延迟导出生成器。仅导入结果模型不加载 FAISS 或 LLM 客户端模块。
+- PyTorch、Transformers 仅在实例化向量化器时导入。模型和索引跨查询复用。
+- 文件使用 snake_case，类使用 PascalCase；Python 注释与文档字符串以清晰英文为主，使用文档以中文为主；编辑后执行 `ruff format`。

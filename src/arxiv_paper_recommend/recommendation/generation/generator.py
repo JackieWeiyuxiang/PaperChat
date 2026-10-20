@@ -1,15 +1,14 @@
 """Generate short, evidence-grounded reasons for retrieved paper suggestions."""
 
 import json
-from dataclasses import dataclass
 
-from openai import OpenAI
 from pydantic import BaseModel, ConfigDict, Field
 
-from arxiv_paper_recommend.config import LLM_API_KEY, LLM_API_URL, LLM_MODEL
-from arxiv_paper_recommend.retrieval._lifecycle import ManagedResource
-from arxiv_paper_recommend.retrieval._validation import validate_integer, validate_text
-from arxiv_paper_recommend.retrieval.search_result import SearchResult
+from arxiv_paper_recommend.common.validation import validate_integer, validate_text
+from arxiv_paper_recommend.llm import StructuredGenerator
+from arxiv_paper_recommend.retrieval import SearchResult
+
+from ..models import PaperRecommendation
 
 MAX_RECOMMENDATIONS = 10
 MAX_GENERATION_CANDIDATES = 30
@@ -32,16 +31,7 @@ class _GenerationResponse(BaseModel):
 	)
 
 
-@dataclass(frozen=True)
-class PaperRecommendation:
-	"""A retrieved paper paired with its generated recommendation reason."""
-
-	rank: int
-	result: SearchResult
-	reason: str
-
-
-class RecommendationGenerator(ManagedResource):
+class RecommendationGenerator(StructuredGenerator):
 	"""Create a ranked paper shortlist with concise reasons grounded in abstracts."""
 
 	instructions = """
@@ -53,25 +43,6 @@ or two concise sentences supported by that paper's title or abstract. Explain
 the connection to the request, and omit a paper when the supplied evidence is
 too weak to justify a recommendation. Do not use outside knowledge.
 """
-
-	def __init__(
-		self, *, model: str | None = None, client: OpenAI | None = None
-	) -> None:
-		super().__init__()
-		selected_model = LLM_MODEL if model is None else model
-		if not isinstance(selected_model, str) or not selected_model.strip():
-			raise ValueError("A non-empty generation model must be configured.")
-		self.model = selected_model.strip()
-		self.client = (
-			client
-			if client is not None
-			else OpenAI(
-				api_key=LLM_API_KEY,
-				base_url=LLM_API_URL,
-			)
-		)
-		if client is None:
-			self._resources.callback(self.client.close)
 
 	def generate(
 		self,
@@ -96,30 +67,24 @@ too weak to justify a recommendation. Do not use outside knowledge.
 		candidates = papers[:MAX_GENERATION_CANDIDATES]
 		papers_by_doc_id: dict[str, SearchResult] = {}
 		for paper in candidates:
-			papers_by_doc_id.setdefault(paper.doc_id, paper)
+			papers_by_doc_id.setdefault(paper.arxiv_id, paper)
 		payload = {
 			"request": request,
 			"max_recommendations": min(limit, len(papers_by_doc_id)),
 			"retrieved_papers": [
 				{
-					"doc_id": paper.doc_id,
+					"doc_id": paper.arxiv_id,
 					"title": paper.title,
 					"abstract": paper.abstract or "",
 				}
 				for paper in papers_by_doc_id.values()
 			],
 		}
-		response = self.client.responses.parse(
-			model=self.model,
-			reasoning={"effort": "none"},
-			temperature=0,
-			instructions=self.instructions,
-			input=json.dumps(payload, ensure_ascii=False),
-			text_format=_GenerationResponse,
+		parsed = self._generate(
+			json.dumps(payload, ensure_ascii=False),
+			self.instructions,
+			_GenerationResponse,
 		)
-		parsed = response.output_parsed
-		if parsed is None:
-			raise RuntimeError("Generation did not return a structured result.")
 
 		recommendations: list[PaperRecommendation] = []
 		seen_doc_ids: set[str] = set()
@@ -141,10 +106,8 @@ too weak to justify a recommendation. Do not use outside knowledge.
 			recommendations.append(
 				PaperRecommendation(
 					rank=len(recommendations) + 1,
-					result=papers_by_doc_id[item.doc_id],
+					paper=papers_by_doc_id[item.doc_id],
 					reason=reason,
 				)
 			)
-			if len(recommendations) == limit:
-				break
-		return recommendations
+		return recommendations[:limit]

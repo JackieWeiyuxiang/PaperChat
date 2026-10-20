@@ -1,10 +1,20 @@
 """Generate retrieval inputs and dispatch research requests to retrievers."""
 
+from functools import partial
 from typing import Protocol
 
-from ._lifecycle import ManagedResource
-from ._validation import validate_integer, validate_text
-from .dense import DivisionalHNSWRetriever
+from arxiv_paper_recommend.common.lifecycle import ManagedResource
+from arxiv_paper_recommend.common.validation import validate_integer, validate_text
+
+from .constants import (
+	DEFAULT_MAX_QUERIES,
+	DEFAULT_MAX_TERMS,
+	DEFAULT_RESULT_LIMIT,
+	DEFAULT_TITLE_WEIGHT,
+	MAX_TERM_COUNT,
+	MIN_GENERATED_TERM_COUNT,
+)
+from .dense import MultiQueryHNSWRetriever
 from .hybrid import (
 	HRRFRetriever,
 	HybridRetriever,
@@ -14,8 +24,7 @@ from .hybrid import (
 from .hybrid.constants import MAX_RESULT_LIMIT
 from .query import QueryGenerator
 from .search_result import SearchResult
-from .sparse import TitleAwareBM25Retriever
-from .sparse.bm25 import MAX_KEYWORD_COUNT
+from .sparse import TitleWeightedBM25Retriever
 
 
 class SearchHandler(Protocol):
@@ -38,21 +47,31 @@ class SearchEngine(ManagedResource):
 		self,
 		*,
 		query_generator: QueryGenerator | None = None,
-		sparse_retriever: TitleAwareBM25Retriever | None = None,
-		dense_retriever: DivisionalHNSWRetriever | None = None,
+		sparse_retriever: TitleWeightedBM25Retriever | None = None,
+		dense_retriever: MultiQueryHNSWRetriever | None = None,
 	) -> None:
 		super().__init__()
 		self.query_generator = query_generator
 		self.sparse_retriever = sparse_retriever
 		self.dense_retriever = dense_retriever
 		self._methods: dict[str, SearchHandler] = {}
-		self.register_method("BM25", self._search_bm25)
-		self.register_method("TITLE_BM25", self._search_title_bm25)
-		self.register_method("HNSW", self._search_hnsw)
-		self.register_method("DIVISIONAL_HNSW", self._search_divisional_hnsw)
-		self.register_method("HRRF", self._search_hrrf)
-		self.register_method("SEMANTIC_RRF", self._search_semantic_rrf)
-		self.register_method("SD_CASCADE", self._search_sd_cascade)
+		methods: dict[str, SearchHandler] = {
+			"BM25": partial(self._search_sparse, title_weight=None),
+			"TITLE_WEIGHTED_BM25": partial(
+				self._search_sparse, title_weight=DEFAULT_TITLE_WEIGHT
+			),
+			"HNSW": partial(self._search_dense, multi_query=False),
+			"MULTI_QUERY_HNSW": partial(self._search_dense, multi_query=True),
+			"HRRF": partial(self._search_hybrid, retriever_type=HRRFRetriever),
+			"SEMANTIC_RRF": partial(
+				self._search_hybrid, retriever_type=SemanticRRFRetriever
+			),
+			"SD_CASCADE": partial(
+				self._search_hybrid, retriever_type=SDCascadeRetriever
+			),
+		}
+		for name, handler in methods.items():
+			self.register_method(name, handler)
 
 	@property
 	def available_methods(self) -> tuple[str, ...]:
@@ -74,10 +93,10 @@ class SearchEngine(ManagedResource):
 		self,
 		request: str,
 		method: str,
-		limit: int = 20,
+		limit: int = DEFAULT_RESULT_LIMIT,
 		*,
-		max_terms: int = 12,
-		max_queries: int = 4,
+		max_terms: int = DEFAULT_MAX_TERMS,
+		max_queries: int = DEFAULT_MAX_QUERIES,
 	) -> list[SearchResult]:
 		"""Validate shared inputs and dispatch; handlers validate their options."""
 		self._ensure_open()
@@ -92,123 +111,62 @@ class SearchEngine(ManagedResource):
 		validate_integer(limit, "Result limit")
 		return handler(request, limit, max_terms=max_terms, max_queries=max_queries)
 
-	def _search_bm25(
+	@staticmethod
+	def _validate_max_terms(max_terms: int) -> None:
+		validate_integer(
+			max_terms,
+			"max_terms",
+			minimum=MIN_GENERATED_TERM_COUNT,
+			maximum=MAX_TERM_COUNT,
+		)
+
+	def _search_sparse(
 		self,
 		request: str,
 		limit: int,
 		*,
 		max_terms: int,
 		max_queries: int,
+		title_weight: float | None,
 	) -> list[SearchResult]:
-		validate_integer(max_terms, "max_terms", minimum=5, maximum=MAX_KEYWORD_COUNT)
+		self._validate_max_terms(max_terms)
 		generator = self._get_query_generator()
 		retriever = self._get_sparse_retriever()
 		terms = generator.generate_terms(request, max_terms=max_terms)
-		return retriever.search(terms, limit=limit)
+		return retriever.search(terms, limit=limit, title_weight=title_weight)
 
-	def _search_title_bm25(
+	def _search_dense(
 		self,
 		request: str,
 		limit: int,
 		*,
 		max_terms: int,
 		max_queries: int,
+		multi_query: bool,
 	) -> list[SearchResult]:
-		validate_integer(max_terms, "max_terms", minimum=5, maximum=MAX_KEYWORD_COUNT)
-		generator = self._get_query_generator()
-		retriever = self._get_sparse_retriever()
-		terms = generator.generate_terms(request, max_terms=max_terms)
-		return retriever.search(terms, limit=limit, title_weight=3.0)
-
-	def _search_hnsw(
-		self,
-		request: str,
-		limit: int,
-		*,
-		max_terms: int,
-		max_queries: int,
-	) -> list[SearchResult]:
+		if multi_query:
+			validate_integer(max_queries, "max_queries")
 		generator = self._get_query_generator()
 		retriever = self._get_dense_retriever()
+		recall_queries = (
+			generator.generate_queries(request, max_queries=max_queries)
+			if multi_query
+			else None
+		)
 		query = generator.generate_queries(request, max_queries=1)[0]
-		return retriever.search(query, limit=limit)
+		return retriever.search(query, limit=limit, recall_queries=recall_queries)
 
-	def _search_divisional_hnsw(
+	def _search_hybrid(
 		self,
 		request: str,
 		limit: int,
 		*,
 		max_terms: int,
 		max_queries: int,
-	) -> list[SearchResult]:
-		validate_integer(max_queries, "max_queries")
-		generator = self._get_query_generator()
-		retriever = self._get_dense_retriever()
-		queries = generator.generate_queries(request, max_queries=max_queries)
-		ranking_query = generator.generate_queries(request, max_queries=1)[0]
-		return retriever.search(
-			ranking_query, limit=limit, divisional_queries=set(queries)
-		)
-
-	def _search_hrrf(
-		self,
-		request: str,
-		limit: int,
-		*,
-		max_terms: int,
-		max_queries: int,
-	) -> list[SearchResult]:
-		return self._run_hybrid(
-			request,
-			limit,
-			HRRFRetriever,
-			max_terms=max_terms,
-			max_queries=max_queries,
-		)
-
-	def _search_semantic_rrf(
-		self,
-		request: str,
-		limit: int,
-		*,
-		max_terms: int,
-		max_queries: int,
-	) -> list[SearchResult]:
-		return self._run_hybrid(
-			request,
-			limit,
-			SemanticRRFRetriever,
-			max_terms=max_terms,
-			max_queries=max_queries,
-		)
-
-	def _search_sd_cascade(
-		self,
-		request: str,
-		limit: int,
-		*,
-		max_terms: int,
-		max_queries: int,
-	) -> list[SearchResult]:
-		return self._run_hybrid(
-			request,
-			limit,
-			SDCascadeRetriever,
-			max_terms=max_terms,
-			max_queries=max_queries,
-		)
-
-	def _run_hybrid(
-		self,
-		request: str,
-		limit: int,
 		retriever_type: type[HybridRetriever],
-		*,
-		max_terms: int,
-		max_queries: int,
 	) -> list[SearchResult]:
 		validate_integer(limit, "Result limit", maximum=MAX_RESULT_LIMIT)
-		validate_integer(max_terms, "max_terms", minimum=5, maximum=MAX_KEYWORD_COUNT)
+		self._validate_max_terms(max_terms)
 		validate_integer(max_queries, "max_queries")
 		generator = self._get_query_generator()
 		# These wrappers borrow the engine's retrievers and own no connections.
@@ -217,15 +175,12 @@ class SearchEngine(ManagedResource):
 			dense_retriever=self._get_dense_retriever(),
 		) as retriever:
 			terms = generator.generate_terms(request, max_terms=max_terms)
-			divisional_queries = generator.generate_queries(
+			recall_queries = generator.generate_queries(
 				request, max_queries=max_queries
 			)
 			query = generator.generate_queries(request, max_queries=1)[0]
 			return retriever.search(
-				terms,
-				query,
-				limit=limit,
-				divisional_queries=set(divisional_queries),
+				terms, query, limit=limit, recall_queries=recall_queries
 			)
 
 	def _get_query_generator(self) -> QueryGenerator:
@@ -234,14 +189,14 @@ class SearchEngine(ManagedResource):
 			self._resources.callback(self.query_generator.close)
 		return self.query_generator
 
-	def _get_sparse_retriever(self) -> TitleAwareBM25Retriever:
+	def _get_sparse_retriever(self) -> TitleWeightedBM25Retriever:
 		if self.sparse_retriever is None:
-			self.sparse_retriever = TitleAwareBM25Retriever()
+			self.sparse_retriever = TitleWeightedBM25Retriever()
 			self._resources.callback(self.sparse_retriever.close)
 		return self.sparse_retriever
 
-	def _get_dense_retriever(self) -> DivisionalHNSWRetriever:
+	def _get_dense_retriever(self) -> MultiQueryHNSWRetriever:
 		if self.dense_retriever is None:
-			self.dense_retriever = DivisionalHNSWRetriever()
+			self.dense_retriever = MultiQueryHNSWRetriever()
 			self._resources.callback(self.dense_retriever.close)
 		return self.dense_retriever

@@ -2,10 +2,10 @@
 
 from abc import ABC, abstractmethod
 
-from ._lifecycle import ManagedResource
-from .search_result import SearchResult
+from arxiv_paper_recommend.common.lifecycle import ManagedResource
 
-DEFAULT_RESULT_LIMIT = 20
+from .constants import DEFAULT_RESULT_LIMIT
+from .search_result import SearchResult
 
 
 class Retriever[QueryT](ManagedResource, ABC):
@@ -24,6 +24,6 @@ class Retriever[QueryT](ManagedResource, ABC):
 		...
 
 	@abstractmethod
-	def get_score(self, ids: list[int], query: QueryT) -> dict[int, float | None]:
+	def score(self, query: QueryT, document_ids: list[int]) -> dict[int, float | None]:
 		"""Score unique IDs in first-occurrence order; unavailable scores are None."""
 		...

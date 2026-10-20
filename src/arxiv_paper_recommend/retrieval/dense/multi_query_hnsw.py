@@ -1,35 +1,42 @@
-"""Divisional HNSW recall and exact reranking with internal batching."""
+"""Multi-query HNSW recall and exact reranking with internal batching."""
+
+from collections.abc import Sequence
+
+from arxiv_paper_recommend.common.validation import (
+	normalize_queries,
+	validate_integer,
+	validate_text,
+)
 
 from .._ranking import rank_ids
-from .._validation import normalize_queries, validate_integer, validate_text
-from ..base import DEFAULT_RESULT_LIMIT
+from ..constants import DEFAULT_RESULT_LIMIT
 from ..search_result import SearchResult
 from .hnsw import HNSWRetriever
 
 
-class DivisionalHNSWRetriever(HNSWRetriever):
-	"""Reuse one index and vectorizer for divisional recall and query scoring."""
+class MultiQueryHNSWRetriever(HNSWRetriever):
+	"""Reuse one index and vectorizer for multi-query recall and query scoring."""
 
 	def search(
 		self,
 		query: str,
 		limit: int = DEFAULT_RESULT_LIMIT,
 		*,
-		divisional_queries: str | set[str] | None = None,
+		recall_queries: Sequence[str] | None = None,
 	) -> list[SearchResult]:
-		"""Rerank divisional candidates by query, or search once when omitted.
+		"""Rerank multi-query candidates by query, or search once when omitted.
 
-		Each division recalls at most limit documents. An empty set returns [];
+		Each division recalls at most limit documents. An empty sequence returns [];
 		final scores are exact inner products, with ties resolved by document ID.
 		Neighbor IDs are deduplicated before loading documents; result objects
 		are created only for the final selection.
 		"""
-		if divisional_queries is None:
+		if recall_queries is None:
 			return super().search(query, limit=limit)
 		self._ensure_open()
 		validate_text(query, "Query")
 		validate_integer(limit, "Result limit")
-		queries = normalize_queries(divisional_queries)
+		queries = normalize_queries(recall_queries)
 		if not queries or self.index.ntotal == 0:
 			return []
 
@@ -51,7 +58,7 @@ class DivisionalHNSWRetriever(HNSWRetriever):
 		if not candidate_ids:
 			return []
 
-		scores = self.get_score(candidate_ids, query)
+		scores = self.score(query, candidate_ids)
 		return [
 			SearchResult(*documents[document_id], score=scores[document_id])
 			for document_id in rank_ids(candidate_ids, scores, descending=True)[:limit]

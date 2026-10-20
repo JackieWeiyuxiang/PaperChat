@@ -4,15 +4,17 @@ from pathlib import Path
 from sqlite3 import SQLITE_LIMIT_VARIABLE_NUMBER, connect
 from unicodedata import category
 
+from arxiv_paper_recommend.common.validation import validate_integer
 from arxiv_paper_recommend.config import DATABASE_PATH
 
-from .._validation import validate_integer
-from ..base import DEFAULT_RESULT_LIMIT, Retriever
+from ..base import Retriever
+from ..constants import (
+	DEFAULT_RESULT_LIMIT,
+	MAX_QUERY_LENGTH,
+	MAX_TERM_COUNT,
+	MIN_TERM_COUNT,
+)
 from ..search_result import SearchResult
-
-MIN_KEYWORD_COUNT = 1
-MAX_KEYWORD_COUNT = 20
-MAX_QUERY_LENGTH = 1347
 
 
 class BM25Retriever(Retriever[list[str]]):
@@ -34,13 +36,15 @@ class BM25Retriever(Retriever[list[str]]):
 		"""
 		return self._search(query, limit=limit)
 
-	def get_score(self, ids: list[int], query: list[str]) -> dict[int, float | None]:
+	def score(
+		self, query: list[str], document_ids: list[int]
+	) -> dict[int, float | None]:
 		"""Score specified IDs with 1–20 terms, without search length or count limits.
 
 		Preserve first-occurrence ID order. Existing nonmatches score 0.0;
 		missing documents score None. Duplicate IDs are scored only once.
 		"""
-		return self._get_score(ids, query)
+		return self._score(query, document_ids)
 
 	def _search(
 		self,
@@ -52,7 +56,7 @@ class BM25Retriever(Retriever[list[str]]):
 		"""Search with an optional title weight and unit abstract weight."""
 		self._ensure_open()
 		validate_integer(limit, "Result limit")
-		terms = _process_keywords(query)
+		terms = _normalize_terms(query)
 		query_length = sum(len(term) + term.count('"') + 2 for term in terms) + len(
 			" OR "
 		) * (len(terms) - 1)
@@ -60,7 +64,7 @@ class BM25Retriever(Retriever[list[str]]):
 			raise ValueError(
 				f"Search query length must be at most {MAX_QUERY_LENGTH} characters."
 			)
-		score_expression, score_parameters = self._get_score_sql(title_weight)
+		score_expression, score_parameters = self._score_sql(title_weight)
 		order_expression = "rank" if title_weight is None else "score"
 		rows = self.conn.execute(
 			f"""
@@ -74,23 +78,23 @@ class BM25Retriever(Retriever[list[str]]):
 		).fetchall()
 		return [SearchResult(*row) for row in rows]
 
-	def _get_score(
+	def _score(
 		self,
-		ids: list[int],
 		query: list[str],
+		document_ids: list[int],
 		*,
 		title_weight: float | None = None,
 	) -> dict[int, float | None]:
 		"""Score IDs with an optional title weight and unit abstract weight."""
 		self._ensure_open()
-		terms = _process_keywords(query)
-		document_ids = list(dict.fromkeys(ids))
+		terms = _normalize_terms(query)
+		document_ids = list(dict.fromkeys(document_ids))
 		scores: dict[int, float | None] = dict.fromkeys(document_ids)
 		if not document_ids:
 			return scores
 
 		match_query = _build_query(terms)
-		score_expression, score_parameters = self._get_score_sql(title_weight)
+		score_expression, score_parameters = self._score_sql(title_weight)
 		batch_size = (
 			self.conn.getlimit(SQLITE_LIMIT_VARIABLE_NUMBER) - len(score_parameters) - 1
 		)
@@ -115,7 +119,7 @@ class BM25Retriever(Retriever[list[str]]):
 		return scores
 
 	@staticmethod
-	def _get_score_sql(
+	def _score_sql(
 		title_weight: float | None,
 	) -> tuple[str, tuple[float, ...]]:
 		"""Bind only the title weight; the abstract weight is always one."""
@@ -124,12 +128,12 @@ class BM25Retriever(Retriever[list[str]]):
 		return "bm25(documents_fts, ?, 1.0)", (title_weight,)
 
 
-def _process_keywords(keywords: list[str]) -> list[str]:
+def _normalize_terms(terms: list[str]) -> list[str]:
 	"""Normalize whitespace and case, retaining first-occurrence term order."""
-	if not isinstance(keywords, list):
+	if not isinstance(terms, list):
 		raise TypeError("Keywords must be a list of strings.")
 	processed: dict[str, None] = {}
-	for keyword in keywords:
+	for keyword in terms:
 		if not isinstance(keyword, str):
 			raise TypeError("Keywords must contain only strings.")
 		keyword = " ".join(keyword.split()).lower()
@@ -144,9 +148,9 @@ def _process_keywords(keywords: list[str]) -> list[str]:
 				"Each keyword must contain at least one searchable token character."
 			)
 		processed.setdefault(keyword, None)
-	if not MIN_KEYWORD_COUNT <= len(processed) <= MAX_KEYWORD_COUNT:
+	if not MIN_TERM_COUNT <= len(processed) <= MAX_TERM_COUNT:
 		raise ValueError(
-			f"Keyword count must be between {MIN_KEYWORD_COUNT} and {MAX_KEYWORD_COUNT}."
+			f"Keyword count must be between {MIN_TERM_COUNT} and {MAX_TERM_COUNT}."
 		)
 	return list(processed)
 

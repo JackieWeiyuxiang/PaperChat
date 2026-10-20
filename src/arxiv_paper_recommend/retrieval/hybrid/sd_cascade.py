@@ -1,11 +1,13 @@
 """Use BM25 candidates for multi-query dense selection and reranking."""
 
+from collections.abc import Sequence
 from dataclasses import replace
 
 from .._ranking import rank_ids
+from ..constants import DEFAULT_RESULT_LIMIT
 from ..search_result import SearchResult
 from .base import DenseScoreCache, HybridRetriever
-from .constants import DEFAULT_RESULT_LIMIT, SPARSE_CANDIDATE_MULTIPLIER
+from .constants import SPARSE_CANDIDATE_MULTIPLIER
 
 
 class SDCascadeRetriever(HybridRetriever):
@@ -18,16 +20,16 @@ class SDCascadeRetriever(HybridRetriever):
 		limit: int = DEFAULT_RESULT_LIMIT,
 		*,
 		title_weight: float | None = None,
-		divisional_queries: str | set[str] | None = None,
+		recall_queries: Sequence[str] | None = None,
 	) -> list[SearchResult]:
 		"""Recall limit * 60 sparse candidates, select per query, then rerank."""
-		query_texts = self._validate_inputs(query, limit, divisional_queries)
+		query_texts = self._validate_inputs(query, limit, recall_queries)
 		sparse_results = self.sparse_retriever.search(
 			terms,
 			limit=limit * SPARSE_CANDIDATE_MULTIPLIER,
 			title_weight=title_weight,
 		)
-		candidates = {result.id: result for result in sparse_results}
+		candidates = {result.document_id: result for result in sparse_results}
 		if not candidates:
 			return []
 

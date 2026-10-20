@@ -36,7 +36,7 @@ Top-10 是提案中的产品目标；检索 API 默认返回上限为 20，可�
 | --- | --- |
 | 拟使用 Kaggle arXiv／arXiv Paper Abstracts | 现有快照来自 `data-preprocessing` 分支迁移，全部 10,000 条记录的 `source` 字段为 `arxiv_api`；当前分支没有采集源码，不能据此还原完整采集过程 |
 | 至少 10,000 篇论文，以标题＋摘要作为 passage | 当前为 10,000 篇，一篇一个段落；实际 `text` 为标题、两个换行和完整摘要 |
-| sparse、dense、hybrid，外加一项待定 retrieval innovation | 当前已有两种基础方法、三种混合策略、查询生成与重排；创新如何分组及其收益尚未通过实验确定 |
+| sparse、dense、hybrid，外加一项待定 retrieval innovation | 当前已有普通及标题加权 BM25、单查询及多查询 HNSW、三种混合策略、查询生成与重排；创新如何分组及其收益尚未通过实验确定 |
 | 网页显示论文与来源，输出 Top-10 及理由、引用 | 已有最多 10 条推荐及理由，保留原始检索结果；Web 和引用包仍为占位，`SearchResult` 不包含作者、URL 或推荐理由，理由由 `PaperRecommendation` 单独承载 |
 | 约 100 条研究需求、至少 1,000 个 query–paper 相关性标注，至少两位标注者 | 仓库未提供人工评估集与一致率记录 |
 | 比较基线与检索／下游创新 | 仓库未提供相关性指标、生成评估、消融或耗时记录 |

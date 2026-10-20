@@ -8,11 +8,12 @@ import faiss
 import numpy as np
 from numpy.typing import NDArray
 
+from arxiv_paper_recommend.common.validation import validate_integer, validate_text
 from arxiv_paper_recommend.config import DATABASE_PATH, INDEX_PATH
 from arxiv_paper_recommend.vectorization import Qwen3Vectorizer
 
-from .._validation import validate_integer, validate_text
-from ..base import DEFAULT_RESULT_LIMIT, Retriever
+from ..base import Retriever
+from ..constants import DEFAULT_RESULT_LIMIT
 from ..search_result import SearchResult
 
 
@@ -53,11 +54,11 @@ class HNSWRetriever(Retriever[str]):
 		scores, ids = self.index.search(self._prepare_queries([query]), limit)
 		return self._results_from_neighbors(ids, scores)[0]
 
-	def get_score(self, ids: list[int], query: str) -> dict[int, float | None]:
+	def score(self, query: str, document_ids: list[int]) -> dict[int, float | None]:
 		"""Return exact inner products for one query and the specified IDs."""
 		self._ensure_open()
 		validate_text(query, "Query")
-		scores: dict[int, float | None] = dict.fromkeys(ids)
+		scores: dict[int, float | None] = dict.fromkeys(document_ids)
 		valid_ids, vectors = self._reconstruct_documents(list(scores))
 		if not valid_ids:
 			return scores

@@ -1,12 +1,12 @@
 """Rerank each candidate list with RRF, then fuse their new rankings."""
 
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from dataclasses import replace
 
 from .._ranking import rank_ids, rrf_scores
+from ..constants import DEFAULT_RESULT_LIMIT
 from ..search_result import SearchResult
 from .base import HybridRetriever
-from .constants import DEFAULT_RESULT_LIMIT
 
 
 class HRRFRetriever(HybridRetriever):
@@ -19,17 +19,17 @@ class HRRFRetriever(HybridRetriever):
 		limit: int = DEFAULT_RESULT_LIMIT,
 		*,
 		title_weight: float | None = None,
-		divisional_queries: str | set[str] | None = None,
+		recall_queries: Sequence[str] | None = None,
 	) -> list[SearchResult]:
 		"""Return final RRF scores, with ties resolved by ascending document ID."""
-		self._validate_inputs(query, limit, divisional_queries)
+		self._validate_inputs(query, limit, recall_queries)
 		sparse_results = self.sparse_retriever.search(
 			terms, limit=limit, title_weight=title_weight
 		)
-		sparse_candidates = {result.id: result for result in sparse_results}
-		sparse_scores = {result.id: result.score for result in sparse_results}
+		sparse_candidates = {result.document_id: result for result in sparse_results}
+		sparse_scores = {result.document_id: result.score for result in sparse_results}
 		dense_candidates, cache = self._dense_candidates(
-			query, limit, divisional_queries=divisional_queries
+			query, limit, recall_queries=recall_queries
 		)
 		if not sparse_candidates and not dense_candidates:
 			return []
@@ -42,8 +42,8 @@ class HRRFRetriever(HybridRetriever):
 		]
 		if missing_sparse_ids:
 			sparse_scores.update(
-				self.sparse_retriever.get_score(
-					missing_sparse_ids, terms, title_weight=title_weight
+				self.sparse_retriever.score(
+					terms, missing_sparse_ids, title_weight=title_weight
 				)
 			)
 
