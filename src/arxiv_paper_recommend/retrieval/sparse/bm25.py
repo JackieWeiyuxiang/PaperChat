@@ -32,6 +32,24 @@ class BM25Retriever(Retriever[list[str]]):
 		Accept 1–20 distinct terms after normalization and a positive integer
 		limit. The escaped OR query must not exceed 1,347 characters.
 		"""
+		return self._search(query, limit=limit)
+
+	def get_score(self, ids: list[int], query: list[str]) -> dict[int, float | None]:
+		"""Score specified IDs with 1–20 terms, without search length or count limits.
+
+		Preserve first-occurrence ID order. Existing nonmatches score 0.0;
+		missing documents score None. Duplicate IDs are scored only once.
+		"""
+		return self._get_score(ids, query)
+
+	def _search(
+		self,
+		query: list[str],
+		limit: int,
+		*,
+		title_weight: float | None = None,
+	) -> list[SearchResult]:
+		"""Search with an optional title weight and unit abstract weight."""
 		self._ensure_open()
 		validate_integer(limit, "Result limit")
 		terms = _process_keywords(query)
@@ -42,24 +60,28 @@ class BM25Retriever(Retriever[list[str]]):
 			raise ValueError(
 				f"Search query length must be at most {MAX_QUERY_LENGTH} characters."
 			)
+		score_expression, score_parameters = self._get_score_sql(title_weight)
+		order_expression = "rank" if title_weight is None else "score"
 		rows = self.conn.execute(
-			"""
-            SELECT documents_fts.rowid, doc_id, title, abstract, rank
+			f"""
+            SELECT documents_fts.rowid, doc_id, title, abstract, {score_expression} AS score
             FROM documents_fts
             WHERE documents_fts MATCH ?
-            ORDER BY rank
+            ORDER BY {order_expression}
             LIMIT ?
         """,
-			(_build_query(terms), limit),
+			(*score_parameters, _build_query(terms), limit),
 		).fetchall()
 		return [SearchResult(*row) for row in rows]
 
-	def get_score(self, ids: list[int], query: list[str]) -> dict[int, float | None]:
-		"""Score specified IDs with 1–20 terms, without search length or count limits.
-
-		Preserve first-occurrence ID order. Existing nonmatches score 0.0;
-		missing documents score None. Duplicate IDs are scored only once.
-		"""
+	def _get_score(
+		self,
+		ids: list[int],
+		query: list[str],
+		*,
+		title_weight: float | None = None,
+	) -> dict[int, float | None]:
+		"""Score IDs with an optional title weight and unit abstract weight."""
 		self._ensure_open()
 		terms = _process_keywords(query)
 		document_ids = list(dict.fromkeys(ids))
@@ -68,7 +90,10 @@ class BM25Retriever(Retriever[list[str]]):
 			return scores
 
 		match_query = _build_query(terms)
-		batch_size = self.conn.getlimit(SQLITE_LIMIT_VARIABLE_NUMBER) - 1
+		score_expression, score_parameters = self._get_score_sql(title_weight)
+		batch_size = (
+			self.conn.getlimit(SQLITE_LIMIT_VARIABLE_NUMBER) - len(score_parameters) - 1
+		)
 		for start in range(0, len(document_ids), batch_size):
 			batch = document_ids[start : start + batch_size]
 			placeholders = ",".join("?" for _ in batch)
@@ -80,14 +105,23 @@ class BM25Retriever(Retriever[list[str]]):
 				scores[document_id] = 0.0
 			rows = self.conn.execute(
 				f"""
-                SELECT rowid, rank
+                SELECT rowid, {score_expression}
                 FROM documents_fts
                 WHERE documents_fts MATCH ? AND documents_fts.rowid IN ({placeholders})
             """,
-				[match_query, *batch],
+				[*score_parameters, match_query, *batch],
 			).fetchall()
 			scores.update(rows)
 		return scores
+
+	@staticmethod
+	def _get_score_sql(
+		title_weight: float | None,
+	) -> tuple[str, tuple[float, ...]]:
+		"""Bind only the title weight; the abstract weight is always one."""
+		if title_weight is None:
+			return "rank", ()
+		return "bm25(documents_fts, ?, 1.0)", (title_weight,)
 
 
 def _process_keywords(keywords: list[str]) -> list[str]:

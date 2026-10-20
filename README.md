@@ -2,7 +2,7 @@
 
 基于 arXiv 标题与摘要的检索增强论文推荐项目，用于 AI6127（2026）课程作业。目标是根据自然语言研究需求生成 Top-10 论文推荐、简短推荐理由和来源引用。
 
-当前已实现检索阶段的 Python API：BM25、HNSW、三种混合检索策略、Qwen3 本地向量化，以及 LLM 查询生成。可直接提供关键词／语义查询，也可通过 `SearchEngine` 从研究请求生成检索输入。返回的是论文及检索分数，尚不生成推荐理由或证据引用。
+当前已实现检索阶段的 Python API：BM25、单查询与分路 HNSW、三种混合检索策略、Qwen3 本地向量化，以及 LLM 查询生成。可直接提供关键词／语义查询，也可通过 `SearchEngine` 从研究请求生成检索输入。返回的是论文及检索分数，尚不生成推荐理由或证据引用。
 
 ## 当前进度
 
@@ -84,7 +84,7 @@ with SearchEngine() as engine:
 
 `SearchEngine` 按需创建并复用组件。直接调用底层检索器无需 LLM；HNSW 与混合检索仍需要向量化模型。
 
-BM25 和 HNSW 共同实现 `Retriever[QueryT]`：`search(query, limit=20)` 返回结果列表，`get_score(ids, query)` 返回 ID 到分数的字典。BM25 的查询是关键词列表，HNSW 的查询是单个字符串；HNSW 多查询使用 `batch_search`、`batch_get_score`。三种混合检索器实现独立的 `HybridRetriever`，只提供检索接口。完整签名和迁移说明见[检索 API](docs/retrieval.md)。
+BM25 和 HNSW 共同实现 `Retriever[QueryT]`：`search(query, limit=20)` 返回结果列表，`get_score(ids, query)` 返回 ID 到分数的字典。BM25 的查询是关键词列表，`HNSWRetriever` 的查询是单个字符串。`DivisionalHNSWRetriever` 继承 HNSW，通过 `search(query, limit=20, divisional_queries=...)` 执行分路召回与重排，沿用单查询评分接口；分路查询在类内批量编码和召回。引擎的 `dense_retriever` 使用该子类，并将同一实例注入混合检索器。三种混合检索器实现独立的 `HybridRetriever`，只提供检索接口，内部通过公开的 `search`、`get_score` 使用 `HNSWRetriever` 或其子类。完整签名和迁移说明见[检索 API](docs/retrieval.md)。
 
 ## 选择检索方法
 
@@ -93,7 +93,8 @@ BM25 和 HNSW 共同实现 `Retriever[QueryT]`：`search(query, limit=20)` 返�
 | SearchEngine 方法 | 检索流程                              | 最终分数               |
 | ----------------- | ------------------------------------- | ---------------------- |
 | `BM25`            | 关键词／短语匹配                      | 原始 BM25，越小越相关  |
-| `HNSW`            | 多查询近似召回，合并后按整合查询重排  | 内积相似度，越大越相关 |
+| `HNSW`            | 生成一条整合查询，执行单查询近似召回  | 内积相似度，越大越相关 |
+| `DIVISIONAL_HNSW` | 分路近似召回，合并后按整合查询重排    | 内积相似度，越大越相关 |
 | `HRRF`            | 两路候选分别重排，再融合新排名        | 等权 RRF               |
 | `SEMANTIC_RRF`    | 两路召回，按逐篇语义相似度加权        | 语义加权 RRF           |
 | `SD_CASCADE`      | BM25 筛选候选，候选内多查询选择与重排 | 内积相似度             |

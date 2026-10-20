@@ -1,12 +1,10 @@
 """Generate retrieval inputs and dispatch research requests to retrievers."""
 
-from dataclasses import replace
 from typing import Protocol
 
 from ._lifecycle import ManagedResource
-from ._ranking import rank_ids
 from ._validation import validate_integer, validate_text
-from .dense import HNSWRetriever
+from .dense import DivisionalHNSWRetriever
 from .hybrid import (
 	HRRFRetriever,
 	HybridRetriever,
@@ -16,8 +14,8 @@ from .hybrid import (
 from .hybrid.constants import MAX_RESULT_LIMIT
 from .query import QueryGenerator
 from .search_result import SearchResult
-from .sparse import BM25Retriever
-from .sparse.bm25_retriever import MAX_KEYWORD_COUNT
+from .sparse import TitleAwareBM25Retriever
+from .sparse.bm25 import MAX_KEYWORD_COUNT
 
 
 class SearchHandler(Protocol):
@@ -40,8 +38,8 @@ class SearchEngine(ManagedResource):
 		self,
 		*,
 		query_generator: QueryGenerator | None = None,
-		sparse_retriever: BM25Retriever | None = None,
-		dense_retriever: HNSWRetriever | None = None,
+		sparse_retriever: TitleAwareBM25Retriever | None = None,
+		dense_retriever: DivisionalHNSWRetriever | None = None,
 	) -> None:
 		super().__init__()
 		self.query_generator = query_generator
@@ -49,7 +47,9 @@ class SearchEngine(ManagedResource):
 		self.dense_retriever = dense_retriever
 		self._methods: dict[str, SearchHandler] = {}
 		self.register_method("BM25", self._search_bm25)
+		self.register_method("TITLE_BM25", self._search_title_bm25)
 		self.register_method("HNSW", self._search_hnsw)
+		self.register_method("DIVISIONAL_HNSW", self._search_divisional_hnsw)
 		self.register_method("HRRF", self._search_hrrf)
 		self.register_method("SEMANTIC_RRF", self._search_semantic_rrf)
 		self.register_method("SD_CASCADE", self._search_sd_cascade)
@@ -106,7 +106,34 @@ class SearchEngine(ManagedResource):
 		terms = generator.generate_terms(request, max_terms=max_terms)
 		return retriever.search(terms, limit=limit)
 
+	def _search_title_bm25(
+		self,
+		request: str,
+		limit: int,
+		*,
+		max_terms: int,
+		max_queries: int,
+	) -> list[SearchResult]:
+		validate_integer(max_terms, "max_terms", minimum=5, maximum=MAX_KEYWORD_COUNT)
+		generator = self._get_query_generator()
+		retriever = self._get_sparse_retriever()
+		terms = generator.generate_terms(request, max_terms=max_terms)
+		return retriever.search(terms, limit=limit, title_weight=3.0)
+
 	def _search_hnsw(
+		self,
+		request: str,
+		limit: int,
+		*,
+		max_terms: int,
+		max_queries: int,
+	) -> list[SearchResult]:
+		generator = self._get_query_generator()
+		retriever = self._get_dense_retriever()
+		query = generator.generate_queries(request, max_queries=1)[0]
+		return retriever.search(query, limit=limit)
+
+	def _search_divisional_hnsw(
 		self,
 		request: str,
 		limit: int,
@@ -118,20 +145,10 @@ class SearchEngine(ManagedResource):
 		generator = self._get_query_generator()
 		retriever = self._get_dense_retriever()
 		queries = generator.generate_queries(request, max_queries=max_queries)
-		query_results = retriever.batch_search(set(queries), limit=limit)
-		candidates: dict[int, SearchResult] = {}
-		for results in query_results.values():
-			for result in results:
-				candidates.setdefault(result.id, result)
-		if not candidates:
-			return []
-
 		ranking_query = generator.generate_queries(request, max_queries=1)[0]
-		scores = retriever.get_score(list(candidates), ranking_query)
-		return [
-			replace(candidates[document_id], score=scores[document_id])
-			for document_id in rank_ids(candidates, scores, descending=True)[:limit]
-		]
+		return retriever.search(
+			ranking_query, limit=limit, divisional_queries=set(queries)
+		)
 
 	def _search_hrrf(
 		self,
@@ -200,9 +217,16 @@ class SearchEngine(ManagedResource):
 			dense_retriever=self._get_dense_retriever(),
 		) as retriever:
 			terms = generator.generate_terms(request, max_terms=max_terms)
-			queries = generator.generate_queries(request, max_queries=max_queries)
-			score_query = generator.generate_queries(request, max_queries=1)[0]
-			return retriever.search(terms, set(queries), score_query, limit=limit)
+			divisional_queries = generator.generate_queries(
+				request, max_queries=max_queries
+			)
+			query = generator.generate_queries(request, max_queries=1)[0]
+			return retriever.search(
+				terms,
+				query,
+				limit=limit,
+				divisional_queries=set(divisional_queries),
+			)
 
 	def _get_query_generator(self) -> QueryGenerator:
 		if self.query_generator is None:
@@ -210,14 +234,14 @@ class SearchEngine(ManagedResource):
 			self._resources.callback(self.query_generator.close)
 		return self.query_generator
 
-	def _get_sparse_retriever(self) -> BM25Retriever:
+	def _get_sparse_retriever(self) -> TitleAwareBM25Retriever:
 		if self.sparse_retriever is None:
-			self.sparse_retriever = BM25Retriever()
+			self.sparse_retriever = TitleAwareBM25Retriever()
 			self._resources.callback(self.sparse_retriever.close)
 		return self.sparse_retriever
 
-	def _get_dense_retriever(self) -> HNSWRetriever:
+	def _get_dense_retriever(self) -> DivisionalHNSWRetriever:
 		if self.dense_retriever is None:
-			self.dense_retriever = HNSWRetriever()
+			self.dense_retriever = DivisionalHNSWRetriever()
 			self._resources.callback(self.dense_retriever.close)
 		return self.dense_retriever

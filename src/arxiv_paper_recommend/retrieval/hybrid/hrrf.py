@@ -15,28 +15,36 @@ class HRRFRetriever(HybridRetriever):
 	def search(
 		self,
 		terms: list[str],
-		queries: str | set[str],
-		score_query: str,
+		query: str,
 		limit: int = DEFAULT_RESULT_LIMIT,
+		*,
+		title_weight: float | None = None,
+		divisional_queries: str | set[str] | None = None,
 	) -> list[SearchResult]:
 		"""Return final RRF scores, with ties resolved by ascending document ID."""
-		query_texts = self._validate_inputs(queries, score_query, limit)
-		sparse_results = self.sparse_retriever.search(terms, limit=limit)
+		self._validate_inputs(query, limit, divisional_queries)
+		sparse_results = self.sparse_retriever.search(
+			terms, limit=limit, title_weight=title_weight
+		)
 		sparse_candidates = {result.id: result for result in sparse_results}
 		sparse_scores = {result.id: result.score for result in sparse_results}
-		dense_candidates, cache = self._dense_candidates(query_texts, limit)
+		dense_candidates, cache = self._dense_candidates(
+			query, limit, divisional_queries=divisional_queries
+		)
 		if not sparse_candidates and not dense_candidates:
 			return []
 
-		cache.ensure({score_query: [*dense_candidates, *sparse_candidates]})
-		dense_scores = cache.scores[score_query]
+		cache.ensure({query: [*dense_candidates, *sparse_candidates]})
+		dense_scores = cache.scores[query]
 		dense_ids = rank_ids(dense_candidates, dense_scores, descending=True)[:limit]
 		missing_sparse_ids = [
 			document_id for document_id in dense_ids if document_id not in sparse_scores
 		]
 		if missing_sparse_ids:
 			sparse_scores.update(
-				self.sparse_retriever.get_score(missing_sparse_ids, terms)
+				self.sparse_retriever.get_score(
+					missing_sparse_ids, terms, title_weight=title_weight
+				)
 			)
 
 		sparse_ids = _rerank(sparse_candidates, sparse_scores, dense_scores)

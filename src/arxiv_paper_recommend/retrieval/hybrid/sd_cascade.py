@@ -14,25 +14,28 @@ class SDCascadeRetriever(HybridRetriever):
 	def search(
 		self,
 		terms: list[str],
-		queries: str | set[str],
-		score_query: str,
+		query: str,
 		limit: int = DEFAULT_RESULT_LIMIT,
+		*,
+		title_weight: float | None = None,
+		divisional_queries: str | set[str] | None = None,
 	) -> list[SearchResult]:
 		"""Recall limit * 60 sparse candidates, select per query, then rerank."""
-		query_texts = self._validate_inputs(queries, score_query, limit)
+		query_texts = self._validate_inputs(query, limit, divisional_queries)
 		sparse_results = self.sparse_retriever.search(
 			terms,
 			limit=limit * SPARSE_CANDIDATE_MULTIPLIER,
+			title_weight=title_weight,
 		)
 		candidates = {result.id: result for result in sparse_results}
 		if not candidates:
 			return []
 
 		cache = DenseScoreCache(self.dense_retriever)
-		cache.ensure({query: list(candidates) for query in query_texts})
+		cache.ensure({division: list(candidates) for division in query_texts})
 		selected_ids: dict[int, None] = {}
-		for query in query_texts:
-			scores = cache.scores[query]
+		for division in query_texts:
+			scores = cache.scores[division]
 			scored_ids = [
 				document_id
 				for document_id in candidates
@@ -43,8 +46,8 @@ class SDCascadeRetriever(HybridRetriever):
 		if not selected_ids:
 			return []
 
-		cache.ensure({score_query: list(selected_ids)})
-		dense_scores = cache.scores[score_query]
+		cache.ensure({query: list(selected_ids)})
+		dense_scores = cache.scores[query]
 		return [
 			replace(candidates[document_id], score=dense_scores[document_id])
 			for document_id in rank_ids(selected_ids, dense_scores, descending=True)[

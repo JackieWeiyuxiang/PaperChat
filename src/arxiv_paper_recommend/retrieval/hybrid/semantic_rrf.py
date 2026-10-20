@@ -14,23 +14,29 @@ class SemanticRRFRetriever(HybridRetriever):
 	def search(
 		self,
 		terms: list[str],
-		queries: str | set[str],
-		score_query: str,
+		query: str,
 		limit: int = DEFAULT_RESULT_LIMIT,
+		*,
+		title_weight: float | None = None,
+		divisional_queries: str | set[str] | None = None,
 	) -> list[SearchResult]:
 		"""Multiply each complete RRF score by cosine + 1; None gets weight zero."""
-		query_texts = self._validate_inputs(queries, score_query, limit)
+		self._validate_inputs(query, limit, divisional_queries)
 		sparse_limit = (limit + 1) // 2
-		sparse_results = self.sparse_retriever.search(terms, limit=sparse_limit)
+		sparse_results = self.sparse_retriever.search(
+			terms, limit=sparse_limit, title_weight=title_weight
+		)
 		sparse_candidates = {result.id: result for result in sparse_results}
 		sparse_scores = {result.id: result.score for result in sparse_results}
 		sparse_ids = rank_ids(sparse_candidates, sparse_scores)[:sparse_limit]
-		dense_candidates, cache = self._dense_candidates(query_texts, limit)
+		dense_candidates, cache = self._dense_candidates(
+			query, limit, divisional_queries=divisional_queries
+		)
 		if not sparse_candidates and not dense_candidates:
 			return []
 
-		cache.ensure({score_query: [*dense_candidates, *sparse_ids]})
-		dense_scores = cache.scores[score_query]
+		cache.ensure({query: [*dense_candidates, *sparse_ids]})
+		dense_scores = cache.scores[query]
 		dense_ids = rank_ids(dense_candidates, dense_scores, descending=True)[:limit]
 		scores = rrf_scores((sparse_ids, dense_ids))
 		for document_id, score in scores.items():

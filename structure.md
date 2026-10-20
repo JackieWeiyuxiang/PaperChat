@@ -42,19 +42,21 @@ arxiv_paper_recommend/
     │   ├── _ranking.py
     │   ├── sparse/
     │   │   ├── __init__.py
-    │   │   ├── bm25_retriever.py
+    │   │   ├── bm25.py
+    │   │   ├── title_aware_bm25.py   # 可配置标题权重的 BM25 子类
     │   │   └── build_database.py
     │   ├── dense/
     │   │   ├── __init__.py
-    │   │   ├── hnsw_retriever.py
+    │   │   ├── hnsw.py    # 单查询召回与精确评分
+    │   │   ├── divisional_hnsw.py # 分路召回、重排与内部批量计算
     │   │   └── build_index.py
     │   ├── hybrid/
     │   │   ├── __init__.py
     │   │   ├── base.py
     │   │   ├── constants.py
-    │   │   ├── hrrf_retriever.py
-    │   │   ├── semantic_rrf_retriever.py
-    │   │   └── sd_cascade_retriever.py
+    │   │   ├── hrrf.py
+    │   │   ├── semantic_rrf.py
+    │   │   └── sd_cascade.py
     │   ├── query/
     │   │   ├── __init__.py
     │   │   └── generator.py
@@ -75,17 +77,23 @@ arxiv_paper_recommend/
 | `vectorization` | 模型加载、文本编码、池化与归一化 | 返回向量，不保存归档、不构建索引 |
 | `retrieval.base` | sparse / dense 的泛型 `search`、`get_score` 抽象接口 | 复用资源管理，不统一查询类型或分数尺度 |
 | `retrieval.search_result` | 统一结果数据类 | 不执行检索或评分 |
-| `retrieval.sparse` | 数据库导入、FTS5 构建、关键词召回和 BM25 评分 | 保留原始 BM25 分数 |
-| `retrieval.dense` | 向量索引构建、HNSW 单查询及批量召回、指定 ID 精确评分及结果读取 | 不生成 LLM 查询；评分仅检查数据库 ID |
+| `retrieval.sparse` | 数据库导入、FTS5 构建、关键词召回、普通及标题加权 BM25 评分 | 保留各自的原始 BM25 分数，复用同一索引 |
+| `retrieval.dense` | 向量索引构建、HNSW 单查询与分路召回、去重重排、批量操作及指定 ID 精确评分 | 不生成 LLM 查询；评分核对数据库 ID，不读取标题和摘要 |
 | `retrieval.query` | LLM 输入生成、结构化响应与生成模型缓存 | 不执行向量化或检索 |
 | `retrieval.hybrid` | 独立的 `HybridRetriever` 检索接口及三种策略的候选选择、重排与融合 | 仅规定 `search`，不提供 `get_score`；复用每次搜索的评分缓存 |
-| `retrieval.search_engine` | 方法注册、请求生成、组件复用和方法分派 | BM25 保留原分数；HNSW 合并后重排；混合算法交给对应检索器 |
+| `retrieval.search_engine` | 方法注册、请求生成、组件复用和方法分派 | BM25 / TITLE_BM25 保留原分数；HNSW 单查询召回，DIVISIONAL_HNSW 与混合算法委托对应检索器 |
 | `retrieval._lifecycle / _validation / _ranking` | 资源所有权、公共校验和排序／RRF | 内部模块，不作为稳定公开 API |
 | `corpus` | 预留采集、清洗、分块及语料统计职责 | 当前为空包；现有数据快照不代表该流程已迁入源码 |
 | `recommendation.generation / citations / innovation` | 预留证据驱动的推荐生成、引用与下游创新职责 | 当前均为空包；查询生成器不能代替下游生成 |
 | `web` | 预留用户研究需求输入和推荐展示职责 | 当前为空包；没有可启动的 Web 服务 |
 
-`BM25Retriever` 和 `HNSWRetriever` 分别继承 `Retriever[list[str]]`、`Retriever[str]`，统一 `search(query, limit=20)` 和 `get_score(ids, query)`。`HybridRetriever` 独立于该泛型基类，管理默认检索器和公共校验；`DenseScoreCache` 使用 HNSW 批量评分，只在单次搜索内缓存分数。自建资源通过 `ManagedResource` 注册关闭操作，注入组件由调用方管理。
+`BM25Retriever` 和 `HNSWRetriever` 分别继承 `Retriever[list[str]]`、`Retriever[str]`，统一 `search(query, limit=20)` 和 `get_score(ids, query)`。`HybridRetriever` 独立于该泛型基类，管理默认检索器和公共校验，稀疏／稠密组件分别接受并默认创建 `TitleAwareBM25Retriever`、`DivisionalHNSWRetriever`。混合检索仅调用检索器公开的 `search` 和 `get_score`；HRRF / SemanticRRF 委托稠密组件完成分路召回及重排，SD Cascade 在稀疏候选内按查询评分筛选。`DenseScoreCache` 只在单次搜索内缓存分数，包括不可评分的 `None`。自建资源通过 `ManagedResource` 注册关闭操作，注入组件由调用方管理。
+
+三种 hybrid 的接口均为 `search(terms, query, limit=20, *, title_weight=None, divisional_queries=None)`，不再接受 `queries` 参数。标题权重用于稀疏召回和 HRRF 补评分；可选参数直接透传，组件收到 `None` 时回退到父类基础逻辑。SD Cascade 在未提供分路时使用 `query` 进行候选内筛选，提供时使用分路查询，最终始终按 `query` 进行语义重排；空集合不回退到评分查询。引擎通过 `divisional_queries` 传入生成的分路查询，省略标题权重。
+
+`DivisionalHNSWRetriever` 继承 `HNSWRetriever`，沿用构造器、精确评分与资源管理；`search(query, limit=20, *, divisional_queries=None)` 在未提供分路查询时回退到父类单查询，提供时各分路召回、合并去重，再用 query 评分重排。分路召回的批量计算仅在类内使用。引擎的 `dense_retriever` 使用该子类，并向混合检索器注入同一实例，让引擎各条稠密路径共享资源。
+
+`TitleAwareBM25Retriever` 继承 `BM25Retriever`，由 sparse 包公开导出，沿用父类构造器和资源管理。`search(query, limit=20, *, title_weight=None)` 与 `get_score(ids, query, *, title_weight=None)` 在省略权重时回退到父类；显式传入有限非负权重时，内部接口仅接收 `title_weight`，摘要权重在 SQL 中固定为 `1.0`，doc_id 为未索引字段，不参与评分。搜索和指定 ID 评分复用父类私有方法，权重仅作用于本次调用，不保存在实例上。引擎的 `sparse_retriever` 使用该子类，按需创建或通过同名参数注入，供 BM25、TITLE_BM25 和混合检索共享同一实例。TITLE_BM25 每次显式传入 `title_weight=3.0`；BM25 和混合检索不传权重，使用普通 BM25。
 
 ## 数据流
 
@@ -101,14 +109,15 @@ vectors.npz + documents.db ── IndexBuilder ──> documents.faiss
 ```text
 研究请求 ── SearchEngine ── QueryGenerator ── 关键词 / 语义查询 / 评分查询
                     └── 方法分派
-                        ├── BM25Retriever ── documents.db
-                        ├── HNSWRetriever ── Qwen3Vectorizer + 索引 + 数据库
-                        └── 混合检索器 ── 复用 BM25 与 HNSW
+                        ├── BM25 / TITLE_BM25 ── TitleAwareBM25Retriever ── documents.db
+                        ├── HNSW / DIVISIONAL_HNSW ── DivisionalHNSWRetriever
+                        │                              └── Qwen3Vectorizer + 索引 + 数据库
+                        └── 混合检索器 ── 复用 TitleAwareBM25Retriever 与 DivisionalHNSWRetriever
                                       ↓
                                list[SearchResult]
 ```
 
-底层检索器也可独立调用，`search` 均返回结果列表。HNSW 的 `batch_search` 返回按查询分组的结果字典，`batch_get_score` 返回按查询分组的 ID 分数映射，供引擎和混合检索器复用。
+底层检索器也可独立调用，`search` 均返回结果列表，`get_score` 返回单查询的 ID 分数映射。分路检索在类内批量召回；混合检索通过公开方法委托召回或按查询评分，不访问其他检索器的私有方法。引擎 HNSW 生成一条整合查询；DIVISIONAL_HNSW 在检索前分别生成分路查询和整合评分查询，因此空召回时也会调用两次 LLM。
 
 目标中的下游流程尚未实现：
 

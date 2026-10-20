@@ -1,5 +1,6 @@
 """Dense text retrieval backed by FAISS."""
 
-from .hnsw_retriever import HNSWRetriever
+from .divisional_hnsw import DivisionalHNSWRetriever
+from .hnsw import HNSWRetriever
 
-__all__ = ["HNSWRetriever"]
+__all__ = ["DivisionalHNSWRetriever", "HNSWRetriever"]

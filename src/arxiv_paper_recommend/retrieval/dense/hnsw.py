@@ -11,11 +11,9 @@ from numpy.typing import NDArray
 from arxiv_paper_recommend.config import DATABASE_PATH, INDEX_PATH
 from arxiv_paper_recommend.vectorization import Qwen3Vectorizer
 
-from .._validation import normalize_queries, validate_integer, validate_text
+from .._validation import validate_integer, validate_text
 from ..base import DEFAULT_RESULT_LIMIT, Retriever
 from ..search_result import SearchResult
-
-DEFAULT_BATCH_RESULT_LIMIT = 5
 
 
 class HNSWRetriever(Retriever[str]):
@@ -48,83 +46,57 @@ class HNSWRetriever(Retriever[str]):
 		"""Return one query's nearest neighbors in FAISS order."""
 		self._ensure_open()
 		validate_text(query, "Query")
-		return self.batch_search(query, limit=limit)[query]
+		validate_integer(limit, "Result limit")
+		limit = min(limit, self.index.ntotal)
+		if limit == 0:
+			return []
+		scores, ids = self.index.search(self._prepare_queries([query]), limit)
+		return self._results_from_neighbors(ids, scores)[0]
 
 	def get_score(self, ids: list[int], query: str) -> dict[int, float | None]:
 		"""Return exact inner products for one query and the specified IDs."""
 		self._ensure_open()
 		validate_text(query, "Query")
-		return self.batch_get_score({query: ids})[query]
+		scores: dict[int, float | None] = dict.fromkeys(ids)
+		valid_ids, vectors = self._reconstruct_documents(list(scores))
+		if not valid_ids:
+			return scores
+		query_vector = self._prepare_queries([query])[0]
+		scores.update(zip(valid_ids, (vectors @ query_vector).tolist()))
+		return scores
 
-	def batch_search(
+	def _results_from_neighbors(
 		self,
-		query: str | set[str],
-		limit: int = DEFAULT_BATCH_RESULT_LIMIT,
-	) -> dict[str, list[SearchResult]]:
-		"""Return per-query results in FAISS order, with at most limit each.
-
-		Sets are processed in string order. Empty sets return {}; empty indexes
-		return an empty list per valid query without loading the embedding model.
-		Invalid FAISS IDs and records missing from the database are omitted.
-		"""
-		self._ensure_open()
-		validate_integer(limit, "Result limit")
-		queries = normalize_queries(query)
-		if not queries:
-			return {}
-		limit = min(limit, self.index.ntotal)
-		if limit == 0:
-			return {text: [] for text in queries}
-
-		scores, ids = self.index.search(self._prepare_queries(queries), limit)
+		ids: NDArray[np.int64],
+		scores: NDArray[np.float32],
+	) -> list[list[SearchResult]]:
+		"""Read result payloads once and preserve each FAISS neighbor row's order."""
 		documents = {
 			document[0]: document
 			for document in self._retrieve_documents(ids.ravel().tolist())
 		}
-		return {
-			text: [
+		return [
+			[
 				SearchResult(*documents[document_id], score=score)
 				for document_id, score in zip(query_ids.tolist(), query_scores.tolist())
 				if document_id in documents
 			]
-			for text, query_ids, query_scores in zip(queries, ids, scores)
-		}
+			for query_ids, query_scores in zip(ids, scores)
+		]
 
-	def batch_get_score(
-		self,
-		query_ids: dict[str, list[int]],
-	) -> dict[str, dict[int, float | None]]:
-		"""Return exact inner products for each query's requested internal IDs.
-
-		Requires IndexIDMap2 with the inner-product metric. Missing database or
-		index IDs score None. Query and first-occurrence ID order are preserved.
-		Unique valid document vectors are reconstructed in one batch; each query
-		scores only its own IDs. Empty or entirely missing IDs skip encoding.
-		"""
-		self._ensure_open()
-		if not query_ids:
-			return {}
-		queries = list(query_ids)
-		for text in queries:
-			validate_text(text, "Query")
+	def _reconstruct_documents(
+		self, ids: list[int]
+	) -> tuple[list[int], NDArray[np.float32]]:
+		"""Reconstruct only IDs present in both the inner-product index and database."""
 		if (
 			not isinstance(self.index, faiss.IndexIDMap2)
 			or self.index.metric_type != faiss.METRIC_INNER_PRODUCT
 		):
 			raise ValueError("Scoring requires an IndexIDMap2 inner-product index.")
 
-		scores: dict[str, dict[int, float | None]] = {
-			text: dict.fromkeys(query_ids[text]) for text in queries
-		}
-		document_ids = list(
-			dict.fromkeys(
-				document_id
-				for query_scores in scores.values()
-				for document_id in query_scores
-			)
-		)
+		document_ids = list(dict.fromkeys(ids))
 		if not document_ids or self.index.ntotal == 0:
-			return scores
+			return [], np.empty((0, self.index.d), dtype=np.float32)
 		if self._indexed_ids is None:
 			self._indexed_ids = set(faiss.vector_to_array(self.index.id_map).tolist())
 		indexed_ids = [
@@ -137,26 +109,10 @@ class HNSWRetriever(Retriever[str]):
 			document_id for document_id in indexed_ids if document_id in existing_ids
 		]
 		if not valid_ids:
-			return scores
+			return [], np.empty((0, self.index.d), dtype=np.float32)
 
 		vectors = self.index.reconstruct_batch(np.asarray(valid_ids, dtype=np.int64))
-		positions = {
-			document_id: position for position, document_id in enumerate(valid_ids)
-		}
-		active_queries = [
-			text
-			for text in queries
-			if any(document_id in positions for document_id in scores[text])
-		]
-		query_vectors = self._prepare_queries(active_queries)
-		for text, query_vector in zip(active_queries, query_vectors):
-			ids = [
-				document_id for document_id in scores[text] if document_id in positions
-			]
-			rows = [positions[document_id] for document_id in ids]
-			similarities = vectors[rows] @ query_vector
-			scores[text].update(zip(ids, similarities.tolist()))
-		return scores
+		return valid_ids, vectors
 
 	def _prepare_queries(self, queries: list[str]) -> NDArray[np.float32]:
 		"""Copy before in-place normalization, protecting injected vectorizer output."""

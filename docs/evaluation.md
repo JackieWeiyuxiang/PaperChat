@@ -19,7 +19,7 @@
 | 材料 | 建议字段 |
 | --- | --- |
 | 查询 | `query_id`、`request`、`split`、`topic`、`constraints` |
-| 固定检索输入 | `query_id`、`terms`、`queries`、`score_query`、生成模型与提示词版本 |
+| 固定检索输入 | `query_id`、`terms`、`divisional_queries`、`query`、生成模型与提示词版本 |
 | 各方法运行结果 | `run_id`、`query_id`、`method`、`rank`、`doc_id`、`score`、`score_type` |
 | 原始标注 | `query_id`、`doc_id`、`annotator_id`、`relevance`、`note` |
 | 仲裁后标签 | `query_id`、`doc_id`、`relevance`、`adjudication_note` |
@@ -40,9 +40,9 @@
 
 未标注候选不应悄悄当作不相关；加入新方法或扩大返回深度后，应补齐所需标注或明确未判定比例及局限。候选池之外的相关论文未知，因此不能宣称已测得全库 Recall。
 
-现有五种方法可直接纳入比较，但需先冻结一项 hybrid 作为基线，再说明创新引入了什么变化。多查询、整合查询重排、分层 RRF、语义权重和级联候选选择均有实现，尚不能把其组合收益归因于其中任一项。若要做严格消融，应固定语料、模型、检索输入、K 和候选预算；不同方法当前的候选预算不同，需记录并分析这一影响。
+现有检索方法可直接纳入比较，但需先冻结一项 hybrid 作为基线，再说明创新引入了什么变化。多查询、整合查询重排、分层 RRF、语义权重和级联候选选择均有实现，尚不能把其组合收益归因于其中任一项。若要做严格消融，应固定语料、模型、检索输入、K 和候选预算；不同方法当前的候选预算不同，需记录并分析这一影响。
 
-还需区分两种实验：固定 `terms/queries/score_query` 比较检索与排序，以及包含实时 LLM 查询生成的端到端比较。当前 `SearchEngine` 的 HNSW 方法包含多查询合并与整合查询重排，不等同于底层 `HNSWRetriever.search` 的单查询近似召回。
+还需区分两种实验：固定 `terms/divisional_queries/query` 比较检索与排序，以及包含实时 LLM 查询生成的端到端比较。`SearchEngine` 的 HNSW 方法生成一条整合查询并执行单查询近似召回；DIVISIONAL_HNSW 方法另外生成分路查询，再由 `DivisionalHNSWRetriever.search` 合并并重排。前者调用一次 LLM，后者在检索前调用两次，空召回也不减少调用次数。比较时应同时记录查询生成成本和每分路候选预算。
 
 ## 推荐生成与性能评估（待执行）
 
