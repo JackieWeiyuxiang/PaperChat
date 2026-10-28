@@ -1,6 +1,6 @@
 # 推荐生成
 
-生成器消费已检索论文，输出基于标题和摘要的推荐理由，不负责检索或补充引用元数据。安装和端到端示例见 [README](../README.md)，候选接口见[检索 API](retrieval.md)，升级说明见[接口迁移](migration.md)。
+生成器消费已检索论文，输出基于标题和摘要的推荐理由，不负责检索或补充引用元数据。本文说明基础 `RecommendationGenerator`；需要同时返回可核查原文证据时，使用[证据生成](evidence_grounded_generation.md)中的 `EvidenceGroundedRecommendationGenerator`。安装和端到端示例见 [README](../README.md)，候选接口见[检索 API](retrieval.md)，升级说明见[接口迁移](migration.md)。
 
 ## 公开接口
 
@@ -68,4 +68,6 @@ with BM25Retriever() as retriever, RecommendationGenerator() as generator:
 
 生成器支持上下文管理或手动 `close()`，仅关闭自建客户端，关闭后不能继续使用。单独传入 `model` 不改变客户端所有权。
 
-当前理由不是独立引用证据；结果不补充作者、URL 或日期。`citations` 与下游创新包仍为占位。生成质量、忠实性和相关性尚未正式评估，见[实验与评估](evaluation.md)。
+基础方法不返回独立的原文证据字段；证据生成方法额外返回 `evidence` 并校验其为对应标题或摘要的精确连续子字符串。两种方法均不补充作者、URL 或日期，完整引用模块 `citations` 仍为占位。精确字符串校验不证明理由的语义支持性。
+
+已提供[生成对比实验脚本](../experiments/generation/README.md)，使用相同固定候选比较两种方法。生成质量、忠实性和相关性尚未正式评估，见[实验与评估](evaluation.md)。

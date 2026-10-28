@@ -4,7 +4,7 @@
 
 ## 项目能力
 
-已有 10,000 篇论文的数据快照、SQLite FTS5 数据库和 FAISS 向量索引。支持关键词检索、本地 Qwen3 向量化、LLM 查询生成及推荐理由生成。
+已有 10,000 篇论文的数据快照、SQLite FTS5 数据库和 FAISS 向量索引。支持关键词检索、本地 Qwen3 向量化、LLM 查询生成及推荐理由生成。下游生成提供基础方法和返回标题／摘要原文证据的 Evidence-Grounded 方法。
 
 | 检索方法 | 流程 | 分数方向 |
 | --- | --- | --- |
@@ -84,7 +84,11 @@ with SearchEngine() as engine, RecommendationGenerator() as generator:
         )
 ```
 
-`SearchEngine` 按需创建并复用组件；方法名不区分大小写。推荐生成也可消费直接调用 BM25 得到的候选。理由仅依据候选标题和摘要，结果保留原始检索对象；来源链接和独立引用证据尚未补充。候选限制与输出校验见[推荐生成](docs/recommendation.md)。
+`SearchEngine` 按需创建并复用组件；方法名不区分大小写。推荐生成也可消费直接调用 BM25 得到的候选。基础方法返回理由和原始检索对象；候选限制与输出校验见[推荐生成](docs/recommendation.md)。
+
+需要同时核查推荐证据时，可改用 `arxiv_paper_recommend.recommendation.innovation` 中的 `EvidenceGroundedRecommendationGenerator`。它使用相同的 `generate(request, papers, limit=10)` 调用方式，每项结果额外包含 `evidence`，程序检查该证据是否为对应标题或摘要的精确连续原文。原文匹配不保证理由在语义上被证据支持；作者、日期、来源 URL 和完整引用系统仍待补充。接口与示例见[证据生成](docs/evidence_grounded_generation.md)。
+
+已提供[生成对比实验脚本](experiments/generation/README.md)，用于保存固定检索候选，再配对运行基础方法与证据生成方法。正式质量、延迟与成本结论仍待评估。
 
 ## 文档导航
 
@@ -93,6 +97,8 @@ with SearchEngine() as engine, RecommendationGenerator() as generator:
 | [项目结构](structure.md) | 模块职责、依赖方向与数据流 |
 | [检索 API](docs/retrieval.md) | 检索接口、七种方法、分数与资源管理 |
 | [推荐生成](docs/recommendation.md) | 生成接口、候选与响应校验 |
+| [证据生成](docs/evidence_grounded_generation.md) | 原文证据接口、精确匹配与语义验证边界 |
+| [生成对比实验](experiments/generation/README.md) | 固定候选、配对生成与 JSONL 输出 |
 | [向量化](docs/vectorization.md) | 模型、设备、编码和查询指令 |
 | [数据与索引构建](docs/data.md) | 来源、统计、存储格式和离线构建 |
 | [接口迁移](docs/migration.md) | 不兼容变更及历史迁移记录 |
