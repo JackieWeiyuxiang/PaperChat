@@ -22,6 +22,7 @@ from .hybrid import (
 	SemanticRRFRetriever,
 )
 from .hybrid.constants import MAX_RESULT_LIMIT
+from .innovation import FacetCoverageRetriever
 from .query import QueryGenerator
 from .search_result import SearchResult
 from .sparse import TitleWeightedBM25Retriever
@@ -68,6 +69,9 @@ class SearchEngine(ManagedResource):
 			),
 			"SD_CASCADE": partial(
 				self._search_hybrid, retriever_type=SDCascadeRetriever
+			),
+			"FACET_COVERAGE": partial(
+				self._search_hybrid, retriever_type=FacetCoverageRetriever
 			),
 		}
 		for name, handler in methods.items():

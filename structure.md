@@ -9,6 +9,9 @@ arxiv_paper_recommend/
 ├── README.md / structure.md / AGENTS.md
 ├── pyproject.toml / uv.lock / .env.example
 ├── docs/                           # API、数据、模型、迁移、课程与评估说明
+├── experiments/
+│   ├── run_facet_coverage.py       # 四方法代理实验、权重选择、指标与计时
+│   └── results/                    # 冻结输入、运行结果、指标与实验报告
 ├── data.db                         # 历史数据，不属于当前默认数据流
 ├── data/
 │   ├── raw/papers.jsonl
@@ -41,7 +44,8 @@ arxiv_paper_recommend/
     │   │   ├── base.py / constants.py
     │   │   └── hrrf.py / semantic_rrf.py / sd_cascade.py
     │   ├── query/generator.py
-    │   └── innovation/            # 规划占位
+    │   └── innovation/
+    │       └── facet_coverage.py  # HRRF 候选的最弱语义分面覆盖重排
     ├── recommendation/
     │   ├── models.py
     │   ├── generation/generator.py
@@ -50,7 +54,7 @@ arxiv_paper_recommend/
     └── web/                       # 规划占位
 ```
 
-各包包含相应的 `__init__.py`。本地 `experiment/` 与 `data/statistics.md` 被 Git 忽略，不属于可分发的实现或评估证据。
+各包包含相应的 `__init__.py`。旧的本地 `experiment/` 与 `data/statistics.md` 被 Git 忽略；可复现实验使用纳入仓库的 `experiments/`。
 
 ## 职责与依赖
 
@@ -63,11 +67,12 @@ arxiv_paper_recommend/
 | `vectorization` | 模型加载、批量编码、池化与归一化 | 不保存归档或构建索引 |
 | `retrieval.sparse / dense` | 召回和指定 ID 评分 | 不调用 LLM；查询类型和原始分数尺度由算法决定 |
 | `retrieval.hybrid` | 候选选择、重排和融合 | 通过稀疏／稠密组件公开接口协作；缓存仅限单次搜索 |
+| `retrieval.innovation` | 在固定 HRRF 候选上执行最弱语义分面覆盖重排 | 复用公开稀疏／稠密组件；不扩大 HRRF 候选池 |
 | `retrieval.query` | 从研究请求生成关键词及语义查询 | 依赖共享 LLM 层，不执行检索或向量化 |
 | `retrieval.search_engine` | 注册方法、生成输入、延迟创建和复用组件 | 不承担算法内部排名逻辑 |
 | `recommendation.models` | 推荐记录及原始检索结果关联 | 不依赖 LLM 模块 |
 | `recommendation.generation` | 基于候选标题和摘要生成理由、校验论文与响应 | 依赖共享 LLM 层及公开检索结果模型，不访问检索内部工具 |
-| `citations / innovation / web` | 保留引用、创新和界面扩展边界 | 当前为空包，不代表已有功能 |
+| `recommendation.innovation / citations / web` | 保留下游创新、引用和界面扩展边界 | 当前为空包，不代表已有功能 |
 
 `Retriever` 统一稀疏／稠密的搜索与评分契约；`HybridRetriever` 独立定义混合搜索，不提供单独评分接口。共享限值位于 `retrieval.constants`，混合算法专用预算位于 `retrieval.hybrid.constants`，排序与 RRF 位于检索内部模块 `_ranking`。
 

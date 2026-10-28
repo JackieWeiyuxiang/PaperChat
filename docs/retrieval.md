@@ -14,6 +14,7 @@ from arxiv_paper_recommend.retrieval.hybrid import (
     SemanticRRFRetriever,
     SDCascadeRetriever,
 )
+from arxiv_paper_recommend.retrieval.innovation import FacetCoverageRetriever
 from arxiv_paper_recommend.retrieval.query import QueryGenerator
 ```
 
@@ -162,6 +163,30 @@ Sparse-to-Dense Cascade，稀疏到稠密级联检索。BM25 召回最多 `limit
 
 缺少向量的候选不参与语义选择；本方法不执行全库 HNSW 搜索，也不计算 RRF。无稀疏候选、没有召回查询或没有可评分候选时返回空列表。
 
+## 检索创新：FacetCoverageRetriever
+
+FC-HRRF 先用现有 HRRF 取得固定深度候选，再以每个召回查询作为一个语义分面，对
+同一批候选计算精确内积排名。设 HRRF 排名百分位为 `P_H`，各分面排名百分位为
+`P_j`，最终分数为：
+
+```text
+coverage(d) = min_j P_j(d)
+score(d) = (1 - coverage_weight) * P_H(d) + coverage_weight * coverage(d)
+```
+
+缺少某一分面向量分数时，该分面的百分位为零。最小值使只匹配部分需求的论文受到
+惩罚；`coverage_weight=0` 保留原 HRRF 顺序。接口沿用混合检索参数，并增加：
+
+```text
+candidate_limit: int | None = None  # 默认 max(50, limit)，最大 100
+coverage_weight: float = 0.5        # 有限数值，范围 [0, 1]
+```
+
+默认覆盖权重 `0.5` 来自示例查询代理实验的开发集选择，不代表已经过人工相关性验证。
+显式空 `recall_queries` 没有覆盖信号，此时保留 HRRF 顺序。检索器复用注入的稀疏、
+稠密组件，不拥有这些资源。示例查询上的四方法代理实验见
+[实验说明](../experiments/README.md)。
+
 ## SearchEngine
 
 ```text
@@ -180,6 +205,7 @@ search(request: str, method: str, limit=20, *, max_terms=12, max_queries=4)
 | `HRRF` | max_terms：5～20；max_queries：正整数 | 1～100 | 关键词、召回查询、主查询各 1 次 |
 | `SEMANTIC_RRF` | 同上 | 1～100 | 同上 |
 | `SD_CASCADE` | 同上 | 1～100 | 同上 |
+| `FACET_COVERAGE` | 同上 | 1～100 | 同上 |
 
 多查询和混合路径在检索前完成上述生成，空召回不减少调用次数。方法名去掉首尾空白后转为大写；未知方法、空白请求及当前方法使用的无效数量参数在调用 LLM 前报错。数量参数拒绝布尔值和非整数，未使用的参数不参与校验。数据库、模型和生成异常直接传播。
 
