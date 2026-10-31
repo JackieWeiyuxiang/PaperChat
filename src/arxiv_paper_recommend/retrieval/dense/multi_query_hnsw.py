@@ -33,10 +33,53 @@ class MultiQueryHNSWRetriever(HNSWRetriever):
 		"""
 		if recall_queries is None:
 			return super().search(query, limit=limit)
+		return self._recall(
+			query, limit, recall_queries=recall_queries, result_limit=limit
+		)
+
+	def recall(
+		self,
+		query: str,
+		limit: int = DEFAULT_RESULT_LIMIT,
+		*,
+		recall_queries: Sequence[str] | None = None,
+	) -> list[SearchResult]:
+		"""Return the full recall pool with exact query scores via raw_recall()."""
+		return self.raw_recall(query, limit=limit, recall_queries=recall_queries)
+
+	def raw_recall(
+		self,
+		query: str,
+		limit: int = DEFAULT_RESULT_LIMIT,
+		*,
+		recall_queries: Sequence[str] | None = None,
+	) -> list[SearchResult]:
+		"""Return the full deduplicated recall pool with exact query scores.
+
+		Each recall query contributes at most limit neighbors. None uses query
+		as the sole recall query; an empty sequence returns no candidates.
+		The complete pool is ordered by exact inner product, then document ID,
+		without truncating the merged pool to limit.
+		"""
+		return self._recall(
+			query, limit, recall_queries=recall_queries, result_limit=None
+		)
+
+	def _recall(
+		self,
+		query: str,
+		limit: int,
+		*,
+		recall_queries: Sequence[str] | None,
+		result_limit: int | None,
+	) -> list[SearchResult]:
+		"""Share batched recall while constructing only the requested results."""
 		self._ensure_open()
 		validate_text(query, "Query")
 		validate_integer(limit, "Result limit")
-		queries = normalize_queries(recall_queries)
+		queries = (
+			[query] if recall_queries is None else normalize_queries(recall_queries)
+		)
 		if not queries or self.index.ntotal == 0:
 			return []
 
@@ -58,8 +101,10 @@ class MultiQueryHNSWRetriever(HNSWRetriever):
 		if not candidate_ids:
 			return []
 
-		scores = self.score(query, candidate_ids)
+		scores = self.raw_score(query, candidate_ids)
 		return [
 			SearchResult(*documents[document_id], score=scores[document_id])
-			for document_id in rank_ids(candidate_ids, scores, descending=True)[:limit]
+			for document_id in rank_ids(candidate_ids, scores, descending=True)[
+				:result_limit
+			]
 		]

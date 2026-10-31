@@ -10,43 +10,20 @@ from arxiv_paper_recommend.common.validation import (
 	validate_text,
 )
 
+from .._scoring import DenseScoreCache
 from ..constants import DEFAULT_RESULT_LIMIT
 from ..dense import MultiQueryHNSWRetriever
+from ..innovation import FCHNSWRetriever
 from ..search_result import SearchResult
 from ..sparse import TitleWeightedBM25Retriever
 from .constants import MAX_RESULT_LIMIT
-
-
-class DenseScoreCache:
-	"""Cache public score results per request, including unavailable scores."""
-
-	def __init__(
-		self,
-		retriever: MultiQueryHNSWRetriever,
-		initial: dict[str, dict[int, float | None]] | None = None,
-	) -> None:
-		self.retriever = retriever
-		self.scores: dict[str, dict[int, float | None]] = (
-			{} if initial is None else initial
-		)
-
-	def ensure(self, query_ids: dict[str, list[int]]) -> None:
-		for query, document_ids in query_ids.items():
-			cached = self.scores.setdefault(query, {})
-			missing_ids = [
-				document_id
-				for document_id in dict.fromkeys(document_ids)
-				if document_id not in cached
-			]
-			if missing_ids:
-				cached.update(self.retriever.score(query, missing_ids))
 
 
 class HybridRetriever(ManagedResource, ABC):
 	"""Define hybrid search, own defaults, and borrow injected retrievers.
 
 	Hybrid strategies have no standalone candidate-scoring interface.
-	Dense components are used only through public search and score methods.
+	Dense components use public search, raw_recall, and raw_score methods.
 	Components handle None options by falling back to their base implementations.
 	"""
 
@@ -65,9 +42,7 @@ class HybridRetriever(ManagedResource, ABC):
 			if sparse_retriever is None:
 				self._resources.callback(self.sparse_retriever.close)
 			self.dense_retriever = (
-				MultiQueryHNSWRetriever()
-				if dense_retriever is None
-				else dense_retriever
+				FCHNSWRetriever() if dense_retriever is None else dense_retriever
 			)
 			if dense_retriever is None:
 				self._resources.callback(self.dense_retriever.close)
@@ -116,5 +91,5 @@ class HybridRetriever(ManagedResource, ABC):
 			query, limit=limit, recall_queries=recall_queries
 		)
 		candidates = {result.document_id: result for result in results}
-		scores = {query: {result.document_id: result.score for result in results}}
-		return candidates, DenseScoreCache(self.dense_retriever, scores)
+		# Search returns FC scores; raw_score() supplies unfused inner products.
+		return candidates, DenseScoreCache(self.dense_retriever)

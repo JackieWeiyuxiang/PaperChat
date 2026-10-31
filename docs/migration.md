@@ -2,6 +2,67 @@
 
 本文记录不兼容变更。当前用法见[检索 API](retrieval.md)、[推荐生成](recommendation.md)和[数据与构建](data.md)。除明确列出的兼容名称外，旧名称不提供别名或转发模块。
 
+## HRRF 支持三层权重（2026-10-31）
+
+`HRRFRetriever.search()` 和 `SearchEngine.search(..., method="HRRF")` 现在接受与 HPRF
+相同的三个仅限关键字参数：`sparse_semantic_weight=0.5`、`dense_semantic_weight=0.5`、
+`fusion_weight=0.5`，范围及校验规则均相同。两路内部及最终融合分别使用
+`(1 - w) / (60 + rank_A) + w / (60 + rank_B)`，候选预算与补评分流程保持不变。
+
+默认排序与此前等权相加版本一致，最终分数为原来的一半；依赖绝对分数阈值的调用方需调整。
+无需重建数据库或向量索引。本次未执行测试或实验。
+
+## HPRF 替换旧 Facet Coverage 混合检索（2026-10-31）
+
+删除 `retrieval.innovation.FacetCoverageRetriever`、其 `facet_coverage` 模块和
+`FACET_COVERAGE` 引擎方法，不提供兼容别名。底层调用改用
+`from arxiv_paper_recommend.retrieval.innovation import HPRFRetriever`，引擎调用改为
+`engine.search(request, method="HPRF", ...)`。
+
+新方法保留 HRRF 的两路候选预算，每路最多 `limit` 篇，不再接受旧混合检索器的
+`candidate_limit` 或 `coverage_weight`。三处融合均使用排名百分位加权，三个仅限
+关键字的参数为 `sparse_semantic_weight=0.5`、`dense_semantic_weight=0.5` 和
+`fusion_weight=0.5`，分别控制稀疏候选内语义占比、稠密候选内语义占比和最终稠密路占比。
+它们独立接受 `[0, 1]` 内有限整数或浮点数，拒绝布尔值；旧混合算法的参数不可直接映射。
+
+HPRF 实现位于 `retrieval.innovation.hprf`，由 `retrieval.innovation` 延迟导出。
+此前使用 `retrieval.hybrid.HPRFRetriever` 或 `retrieval.hybrid.hprf` 的调用方需更新导入路径，
+旧路径不保留别名；算法、搜索参数及 `HPRF` 引擎方法名保持不变。
+
+`SearchEngine.search()` 同样接受上述三个权重，用于 `HRRF` 和 `HPRF`，在调用 LLM 前校验；
+其他方法忽略这些参数，自定义 `SearchHandler` 签名保持不变。独立 FC-HNSW 的
+`coverage_weight`、`candidate_limit`、默认 dense 地位以及引擎默认 `FC_HNSW` 均保留，
+HRRF 的加权接口及分数尺度见上节，无需重建数据库或向量索引。
+
+旧实验脚本及专用测试已删除，历史结果和报告仍保存在 `experiments/results/`，
+仅代表旧版 FC-HRRF 算法，不能作为 HPRF 的评估结论；本次未执行测试或实验。
+
+## 默认 dense 切换为 FC-HNSW（2026-10-31）
+
+新增独立检索器 `retrieval.innovation.FCHNSWRetriever`，继承原多查询 HNSW 的构造器、
+`raw_score()` 和 `raw_recall()`。`search()`、`score()`、`recall()` 统一使用原始分数公式：
+`coverage_weight × GM(max(0, 分面内积)) + (1 − coverage_weight) × 主查询内积`。
+分面等权，任一非正或缺失分面使覆盖度为零，主查询保留正负值。默认覆盖权重为 `0.5`，
+搜索每分面候选深度默认 `max(50, limit)`；独立 FC-HNSW 不受混合检索的 100 条上限限制。
+
+`score()` 新增仅限关键字参数 `recall_queries=None`、`coverage_weight=0.5`；
+`recall()` 新增 `coverage_weight=0.5`，返回按 FC 排序的完整召回并集。
+需要原始内积的调用方应从 `score()` 迁移至 `raw_score()`，需要完整原始召回并集的调用方
+应从 `recall()` 迁移至 `raw_recall()`。原 HNSW、多查询 HNSW 的评分及召回行为保持不变。
+
+`SearchEngine.search(request, method="FC_HNSW", ...)` 的 `method` 现在可以省略；
+省略时生成分面查询和主查询，执行 FC-HNSW。显式 `HNSW`、`MULTI_QUERY_HNSW` 的
+原算法、预算及分数保持不变。
+
+引擎和混合检索默认创建 `FCHNSWRetriever`。HRRF、HPRF、SemanticRRF 的默认 dense 候选
+因此可能变化，后续重排及融合规则不变。其原始内积通过 `raw_score()` 获取，不能复用 FC
+分数。SD Cascade 仍在稀疏候选内评分。旧 FC-HRRF 混合实现已移除，替代接口见上节。
+
+原类和导入路径保留，显式注入组件继续覆盖默认实现。需要混合检索的旧 dense 候选行为时，
+显式注入 `MultiQueryHNSWRetriever`；需要默认 FC 搜索时，使用新类或省略注入。
+历史检索实验显式注入原多查询检索器，保存的结果仍属于旧基线。本次不重跑实验、不更新历史报告，
+不需要重建数据库或向量索引。
+
 ## 标题与摘要独立 BM25（2026-10-31）
 
 稀疏检索从双字段 `documents_fts` 改为单字段 `documents_title_fts` 与 `documents_abstract_fts`。两张表分别索引标题、摘要，沿用 `porter` 分词器和 `documents.id` 作为 rowid；字段长度统计与 IDF 分别计算。

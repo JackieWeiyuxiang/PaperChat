@@ -4,9 +4,10 @@ from collections.abc import Sequence
 from dataclasses import replace
 
 from .._ranking import rank_ids
+from .._scoring import DenseScoreCache
 from ..constants import DEFAULT_RESULT_LIMIT
 from ..search_result import SearchResult
-from .base import DenseScoreCache, HybridRetriever
+from .base import HybridRetriever
 from .constants import SPARSE_CANDIDATE_MULTIPLIER
 
 

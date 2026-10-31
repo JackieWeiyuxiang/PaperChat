@@ -14,7 +14,7 @@ from arxiv_paper_recommend.retrieval.hybrid import (
     SemanticRRFRetriever,
     SDCascadeRetriever,
 )
-from arxiv_paper_recommend.retrieval.innovation import FacetCoverageRetriever
+from arxiv_paper_recommend.retrieval.innovation import FCHNSWRetriever, HPRFRetriever
 from arxiv_paper_recommend.retrieval.query import QueryGenerator
 ```
 
@@ -43,7 +43,7 @@ BM25 使用关键词列表，HNSW 使用单个字符串。评分按 ID 首次出
 | `abstract` | `str \| None` | 摘要 |
 | `score` | `float \| None` | 当前方法的分数，默认 `None` |
 
-BM25 越小越相关；内积、RRF 和语义加权 RRF 越大越相关，分数不能跨方法直接比较。归一化向量的内积对应余弦相似度。
+BM25 越小越相关；内积、FC、RRF 和语义加权 RRF 越大越相关，分数不能跨方法直接比较。归一化向量的内积对应余弦相似度。FC 分数依赖本次候选集合，不能当作内积使用。
 
 共享重排将不可评分结果放在末尾，同分按整数 ID 升序；BM25 召回同样以整数 ID 升序处理同分，基础 HNSW 召回保留 FAISS 的返回顺序。多查询及混合检索创建新的结果对象，不改写底层返回对象。
 
@@ -94,11 +94,15 @@ with TitleWeightedBM25Retriever() as retriever:
 HNSWRetriever(index_path=INDEX_PATH, database_path=DATABASE_PATH, *, vectorizer=None)
 search(query: str, limit=20)
 score(query: str, document_ids: list[int])
+raw_score(query: str, document_ids: list[int])
 ```
 
 加载 FAISS 索引并打开只读数据库连接，向量化器在首次需要编码时创建；可注入复用实例。查询必须为非空白字符串，`limit` 为正整数，最多召回索引中的向量数；空索引返回空列表。
 
-搜索执行近似召回，评分计算指定 ID 的精确内积。评分要求内积度量的 `IndexIDMap2`，只重建同时存在于索引和数据库的向量，其余 ID 为 `None`；无可用 ID 时不编码查询。查询向量需与索引维度一致，归一化前复制，避免改写注入向量化器的输出。
+搜索执行近似召回，`score()` 委托 `raw_score()` 计算指定 ID 的精确内积；子类可覆盖
+`score()` 实现自身公式，`raw_score()` 仍提供原始内积。评分要求内积度量的 `IndexIDMap2`，
+只重建同时存在于索引和数据库的向量，其余 ID 为 `None`；无可用 ID 时不编码查询。
+查询向量需与索引维度一致，归一化前复制，避免改写注入向量化器的输出。
 
 索引在实例生命周期内应保持不变；更新文件后重新创建检索器。
 
@@ -108,6 +112,8 @@ score(query: str, document_ids: list[int])
 
 ```text
 search(query: str, limit=20, *, recall_queries: Sequence[str] | None = None)
+recall(query: str, limit=20, *, recall_queries: Sequence[str] | None = None)
+raw_recall(query: str, limit=20, *, recall_queries: Sequence[str] | None = None)
 ```
 
 `recall_queries` 使用列表、元组等字符串序列，拒绝裸字符串和集合；元素必须为非空白字符串，按首次出现顺序去重。
@@ -118,9 +124,74 @@ search(query: str, limit=20, *, recall_queries: Sequence[str] | None = None)
 
 多查询在类内批量编码和召回；无有效候选时直接返回空列表。最终分数为主查询精确内积。
 
+`recall()` 使用相同的输入校验、批量召回和去重逻辑，但返回完整召回并集，不将合并结果
+截取为 `limit` 篇。这里的 `limit` 仅限制每条召回查询的邻居数量；所有候选按主查询的
+精确内积降序、文档 ID 升序返回，分数为主查询精确内积。`recall_queries=None` 使用
+主查询作为唯一召回查询，显式空序列仍返回空列表。现有 `search()` 的结果数量和行为保持不变。
+`recall()` 委托 `raw_recall()`，底层多查询召回使用 `raw_score()`，使显式调用原类搜索
+实现时仍获得原始内积。`raw_recall()` 也供 FC 子类及混合检索获取完整原始召回并集。
+
+### FCHNSWRetriever（默认 dense）
+
+位于 `retrieval.innovation`，继承 `MultiQueryHNSWRetriever`，保留构造器，
+`search()`、`score()` 和 `recall()` 统一使用原始相似度 FC 公式：
+
+```text
+FCHNSWRetriever(index_path=INDEX_PATH, database_path=DATABASE_PATH, *, vectorizer=None)
+search(
+    query: str, limit=20, *,
+    recall_queries: Sequence[str] | None = None,
+    candidate_limit: int | None = None,
+    coverage_weight: float = 0.5,
+)
+score(
+    query: str, document_ids: list[int], *,
+    recall_queries: Sequence[str] | None = None,
+    coverage_weight: float = 0.5,
+)
+recall(
+    query: str, limit=20, *,
+    recall_queries: Sequence[str] | None = None,
+    coverage_weight: float = 0.5,
+)
+```
+
+`search()` 每条召回查询取最多 `candidate_limit` 篇，对完整去重并集计算 FC，
+按 FC 降序排列后截取 `limit` 篇。`candidate_limit` 默认 `max(50, limit)`，
+要求为不小于 `limit` 的正整数；独立 dense 的 `limit` 和 `candidate_limit` 均无 100 条上限。
+`recall()` 使用同一评分流程，但其 `limit` 仅限制每条分面的召回数量，返回完整去重并集。
+`score()` 为指定 ID 返回相同公式的分数，键按 ID 首次出现顺序保留，不执行召回。
+
+`query` 是 score query，`recall_queries` 是 fc queries。令 `q(d)` 为主查询精确内积，
+`s_j(d)` 为第 `j` 个分面的精确内积：
+
+```text
+coverage(d) = GM(max(0, s_1(d)), ..., max(0, s_m(d)))
+FC(d) = (1 - coverage_weight) * q(d) + coverage_weight * coverage(d)
+```
+
+各分面等权；任一分面非正或缺失时覆盖度为零，均为正时使用
+`exp(mean(log(s_j(d))))` 计算几何平均，主查询内积保留正负值。缺失主查询分数时，
+主查询项贡献为零；全部参与加权的评分均不可用时返回 `None`。不存在于索引或数据库的
+ID 返回 `None`。分数与候选集合大小无关；三个接口使用相同参数时，同一文档分数一致。
+搜索和召回同分按整数 ID 升序，`None` 排末尾。
+`coverage_weight` 接受 `[0, 1]` 内有限整数或浮点数，拒绝布尔值和其他类型；默认 `0.5`
+尚未通过新实验调参。权重为零时仅使用主查询原始内积，跳过额外分面评分；权重为一时
+仅使用分面几何平均，主查询不作为独立加权项。
+
+`recall_queries` 沿用多查询检索的序列校验与去重规则。`None` 使用主查询作为唯一分面，
+此时主查询内积非负时 FC 等于该内积，为负时分面贡献为零，FC 为
+`(1 - coverage_weight) × q(d)`。显式空序列时，`search()`、`recall()` 返回空列表，
+`score()` 仅返回主查询原始内积；无候选同样返回空列表。该检索器不调用 LLM。
+
+继承的 `raw_score(query, document_ids)` 返回指定 ID 的主查询精确内积，
+`raw_recall(query, limit=20, *, recall_queries=None)` 返回完整原始召回并集及主查询
+精确内积，按主查询内积降序、文档 ID 升序排列。这两个入口供混合检索补评分和重新计算
+候选集合内的百分位使用，均不计算 FC。
+
 ## 混合检索
 
-三种实现共享构造器和搜索签名：
+三种基础混合实现及 `retrieval.innovation` 中的 HPRF 共享构造器和基本搜索签名；HRRF、HPRF 另有三个权重参数：
 
 ```text
 HybridRetriever(sparse_retriever=None, dense_retriever=None)
@@ -131,29 +202,50 @@ search(
 ) -> list[SearchResult]
 ```
 
-默认创建 `TitleWeightedBM25Retriever` 和 `MultiQueryHNSWRetriever`，也可注入复用实例。`limit` 为 1～100。`title_weight` 同时用于稀疏召回和 HRRF 补评分，省略时为普通 BM25。
+默认创建 `TitleWeightedBM25Retriever` 和 `FCHNSWRetriever`，也可注入复用实例，包括原 `MultiQueryHNSWRetriever`。`limit` 为 1～100。`title_weight` 同时用于稀疏召回和 HRRF、HPRF 补评分，省略时为普通 BM25。
 
-`query` 用于最终语义重排；`recall_queries` 指定稠密召回或候选内筛选查询，校验与多查询 HNSW 一致。`None` 使用主查询；空序列下 HRRF、SemanticRRF 仅保留稀疏候选，SD Cascade 返回空列表。所有方法候选不足时返回较少结果。
+HRRF、HPRF、SemanticRRF 默认用 FC-HNSW 的 `search()` 选择 dense 候选，每分面深度为
+`max(50, limit)`，保留 `limit` 篇；后续按各自算法重排及融合。原始内积统一通过
+`raw_score()` 获取并在单次搜索内缓存，不把 FC 分数用作内积。显式注入组件覆盖默认实现，
+因此默认切换会改变未注入 dense 的混合检索候选；旧实验显式注入原多查询检索器，保留原基线。
+
+`query` 用于最终语义重排；`recall_queries` 指定稠密召回或候选内筛选查询，校验与多查询 HNSW 一致。`None` 使用主查询；空序列下 HRRF、HPRF、SemanticRRF 仅保留稀疏候选，SD Cascade 返回空列表。所有方法候选不足时返回较少结果。
 
 ### HRRFRetriever
 
 Hierarchical Reciprocal Rank Fusion，分层倒数排名融合：
 
-1. 稀疏侧召回最多 `limit` 篇；稠密侧各查询召回、合并后，按主查询内积保留前 `limit` 篇。
-2. 在每路候选内分别按 BM25 升序和主查询内积降序排名，通过等权 RRF 得到该路新排序；缺少的稀疏分数通过公开评分接口补齐。
-3. 对两份新排序再执行一次等权 RRF，取前 `limit` 篇。
+1. 稀疏侧召回最多 `limit` 篇；稠密侧调用所选 dense 组件保留前 `limit` 篇，默认使用 FC-HNSW 选择。
+2. 在每路候选内分别按 BM25 升序和主查询内积降序排名，通过加权 RRF 得到该路新排序；缺少的稀疏分数通过公开评分接口补齐。
+3. 对两份新排序再执行一次加权 RRF，取前 `limit` 篇。
 
-两阶段均使用一基名次及常量 60：
+搜索接口在基本参数后增加三个仅限关键字的权重，与 HPRF 一致：
 
 ```text
-RRF(d) = Σ 1 / (60 + rank(d))
+sparse_semantic_weight: float = 0.5  # 稀疏候选内部的语义占比
+dense_semantic_weight: float = 0.5   # 稠密候选内部的语义占比
+fusion_weight: float = 0.5           # 最终稠密路的占比
 ```
 
-缺席某路贡献为零，交集论文获得两路贡献；不为交集预留位置。最终分数为第二阶段 RRF。
+两阶段均使用一基名次及常量 60，对两份排名 A、B 加权：
+
+```text
+RRF_w(d) = (1 - w) / (60 + rank_A(d)) + w / (60 + rank_B(d))
+```
+
+路内重排中 A 为 BM25 排名，B 为主查询内积排名，`w` 分别取
+`sparse_semantic_weight`、`dense_semantic_weight`；最终融合中 A 为稀疏路新排序，
+B 为稠密路新排序，`w` 取 `fusion_weight`。缺席某路贡献为零，交集论文获得两路贡献；
+不为交集预留位置，各阶段同分按文档 ID 升序。最终分数为第二阶段加权 RRF。
+
+权重独立接受 `[0, 1]` 内有限整数或浮点数，拒绝布尔值、其他类型及非有限值。
+权重为 `0` 或 `1` 时仍保留两路召回及补评分；最终贡献为零的路所独有的候选仍在并集中，
+以零分参与截取。默认三个权重均为 `0.5`，排序与此前等权相加版本一致，最终分数为原来的
+一半；依赖绝对分数阈值的调用方需相应调整。
 
 ### SemanticRRFRetriever
 
-Semantic-Weighted Reciprocal Rank Fusion，语义加权倒数排名融合。稀疏侧最多召回 `ceil(limit / 2)` 篇；稠密侧多查询召回后按主查询内积保留前 `limit` 篇。对两路列表计算一基名次的等权 RRF，再按逐篇主查询相似度加权：
+Semantic-Weighted Reciprocal Rank Fusion，语义加权倒数排名融合。稀疏侧最多召回 `ceil(limit / 2)` 篇；稠密侧默认使用 FC-HNSW 选择前 `limit` 篇，再按主查询内积排序。对两路列表计算一基名次的等权 RRF，再按逐篇主查询相似度加权：
 
 ```text
 score(d) = RRF(d) × (cos(query, d) + 1)
@@ -167,38 +259,71 @@ Sparse-to-Dense Cascade，稀疏到稠密级联检索。BM25 召回最多 `limit
 
 缺少向量的候选不参与语义选择；本方法不执行全库 HNSW 搜索，也不计算 RRF。无稀疏候选、没有召回查询或没有可评分候选时返回空列表。
 
-## 检索创新：FacetCoverageRetriever
+## HPRFRetriever
 
-FC-HRRF 先用现有 HRRF 取得固定深度候选，再以每个召回查询作为一个语义分面，对
-同一批候选计算精确内积排名。设 HRRF 排名百分位为 `P_H`，各分面排名百分位为
-`P_j`，最终分数为：
+位于 `retrieval.innovation` 的混合检索创新，继承 `HybridRetriever`。
+Hierarchical Percentile Rank Fusion，分层排名百分位融合。候选选择与 HRRF 一致，
+将其三处 RRF 替换为排名百分位加权：
+
+1. 稀疏侧召回最多 `limit` 篇，稠密侧通过所选 dense 组件保留最多 `limit` 篇。
+2. 为两路候选补齐 BM25 和主查询原始内积评分，在各路候选内分别计算 BM25 升序、
+   主查询内积降序的百分位，再按该路的语义权重加权重排。
+3. 将两路新排序分别转换为百分位，加权融合，在候选并集中返回前 `limit` 篇。
+
+搜索接口在基本参数后增加三个仅限关键字的权重：
 
 ```text
-coverage(d) = min_j P_j(d)
-score(d) = (1 - coverage_weight) * P_H(d) + coverage_weight * coverage(d)
+sparse_semantic_weight: float = 0.5  # 稀疏候选内部的语义占比
+dense_semantic_weight: float = 0.5   # 稠密候选内部的语义占比
+fusion_weight: float = 0.5           # 最终稠密路的占比
 ```
 
-缺少某一分面向量分数时，该分面的百分位为零。最小值使只匹配部分需求的论文受到
-惩罚；`coverage_weight=0` 保留原 HRRF 顺序。接口沿用混合检索参数，并增加：
+对当前候选集合，`N` 为实际候选数，`rank` 为一基名次；`P_BM25`、`P_query` 分别为
+该集合内的 BM25、主查询原始内积百分位：
 
 ```text
-candidate_limit: int | None = None  # 默认 max(50, limit)，最大 100
-coverage_weight: float = 0.5        # 有限数值，范围 [0, 1]
+P(d) = (N - rank(d) + 1) / N
+sparse_score(d) = (1 - sparse_semantic_weight) * P_BM25_in_sparse(d)
+                  + sparse_semantic_weight * P_query_in_sparse(d)
+dense_score(d) = (1 - dense_semantic_weight) * P_BM25_in_dense(d)
+                 + dense_semantic_weight * P_query_in_dense(d)
+score(d) = (1 - fusion_weight) * P_sparse_reranked(d)
+           + fusion_weight * P_dense_reranked(d)
 ```
 
-默认覆盖权重 `0.5` 来自示例查询代理实验的开发集选择，不代表已经过人工相关性验证。
-显式空 `recall_queries` 没有覆盖信号，此时保留 HRRF 顺序。检索器复用注入的稀疏、
-稠密组件，不拥有这些资源。示例查询上的四方法代理实验见
-[实验说明](../experiments/README.md)。
+最终使用两路重排后的排名百分位，不直接融合 `sparse_score` 和 `dense_score`。
+每次百分位转换均使用所在候选路的实际大小，不用并集大小。缺失原始评分 `None` 的信号
+百分位为零，BM25 的 `0.0` 是有效评分；路内融合分数即使为零，仍参与该路的新排名。
+最终缺席某路的文档在该路贡献为零，交集文档获得两路贡献，各阶段同分按文档 ID 升序。
+
+权重独立接受 `[0, 1]` 内有限整数或浮点数，拒绝布尔值、其他类型及非有限值。
+权重为 `0` 或 `1` 时仍保留两路召回及补评分，只改变评分贡献；当某路贡献为零时，
+其独有候选仍留在最终并集中，以零分参与截取。没有候选时返回空列表。
+`recall_queries=None` 使用主查询召回；显式空序列关闭稠密召回，稀疏候选仍补齐主查询
+评分并参与分层融合。候选预算沿用 HRRF，不接受 `candidate_limit`。
+
+默认 dense 组件仍为 FC-HNSW，负责选择稠密候选；HPRF 内部的语义排名使用
+`raw_score()` 的主查询原始内积，原始评分通过单次搜索内的缓存复用。
+此方法替代旧 `FacetCoverageRetriever` 与 `FACET_COVERAGE` 引擎入口，不保留旧名称。
+独立 FC-HNSW 和 HRRF 保留；HPRF 及 HRRF 的新权重配置尚未进行效果或性能评估。
 
 ## SearchEngine
 
 ```text
 SearchEngine(*, query_generator=None, sparse_retriever=None, dense_retriever=None)
-search(request: str, method: str, limit=20, *, max_terms=12, max_queries=4)
+search(
+    request: str, method: str = "FC_HNSW", limit=20, *,
+    max_terms=12, max_queries=4,
+    sparse_semantic_weight: float = 0.5,
+    dense_semantic_weight: float = 0.5,
+    fusion_weight: float = 0.5,
+)
 ```
 
-引擎共享标题加权稀疏组件和多查询稠密组件，按需创建并跨调用复用。
+引擎默认共享标题加权稀疏组件和 FC-HNSW 稠密组件，按需创建并跨调用复用。省略 `method`
+等价于指定 `FC_HNSW`。显式 `HNSW`、`MULTI_QUERY_HNSW` 分别调用原类的搜索实现，
+在共享组件上保留原算法、候选预算和内积分数。显式注入的 dense 组件覆盖默认实现，
+`FC_HNSW` 及混合路径使用注入组件的公开接口；注入原多查询类不会自动为其增加 FC 搜索。
 
 | 方法 | 使用的数量参数 | limit | 每次搜索的 LLM 调用 |
 | --- | --- | --- | --- |
@@ -206,12 +331,16 @@ search(request: str, method: str, limit=20, *, max_terms=12, max_queries=4)
 | `TITLE_WEIGHTED_BM25` | max_terms：5～20 | 正整数 | 1 次关键词生成 |
 | `HNSW` | 无 | 正整数 | 1 次主查询生成 |
 | `MULTI_QUERY_HNSW` | max_queries：正整数 | 正整数 | 召回查询、主查询各 1 次 |
+| `FC_HNSW`（默认） | max_queries：正整数 | 正整数 | 分面查询、主查询各 1 次 |
 | `HRRF` | max_terms：5～20；max_queries：正整数 | 1～100 | 关键词、召回查询、主查询各 1 次 |
 | `SEMANTIC_RRF` | 同上 | 1～100 | 同上 |
 | `SD_CASCADE` | 同上 | 1～100 | 同上 |
-| `FACET_COVERAGE` | 同上 | 1～100 | 同上 |
+| `HPRF` | 同上 | 1～100 | 同上 |
 
 多查询和混合路径在检索前完成上述生成，空召回不减少调用次数。方法名去掉首尾空白后转为大写；未知方法、空白请求及当前方法使用的无效数量参数在调用 LLM 前报错。数量参数拒绝布尔值和非整数，未使用的参数不参与校验。数据库、模型和生成异常直接传播。
+
+三个权重用于 `HRRF` 和 `HPRF`，在创建查询生成器及调用 LLM 前完成校验；其他方法忽略
+这些参数，不对其校验或透传。权重含义与各自底层检索器一致，自定义处理器继续使用下述原有签名。
 
 `available_methods` 返回注册顺序的名称元组。`register_method(name, handler)` 支持新增方法，拒绝空名称、重复名称和不可调用处理器。处理器签名保持：
 

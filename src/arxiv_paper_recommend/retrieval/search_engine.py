@@ -4,7 +4,11 @@ from functools import partial
 from typing import Protocol
 
 from arxiv_paper_recommend.common.lifecycle import ManagedResource
-from arxiv_paper_recommend.common.validation import validate_integer, validate_text
+from arxiv_paper_recommend.common.validation import (
+	validate_integer,
+	validate_text,
+	validate_weight,
+)
 
 from .constants import (
 	DEFAULT_MAX_QUERIES,
@@ -14,7 +18,7 @@ from .constants import (
 	MAX_TERM_COUNT,
 	MIN_GENERATED_TERM_COUNT,
 )
-from .dense import MultiQueryHNSWRetriever
+from .dense import HNSWRetriever, MultiQueryHNSWRetriever
 from .hybrid import (
 	HRRFRetriever,
 	HybridRetriever,
@@ -22,7 +26,7 @@ from .hybrid import (
 	SemanticRRFRetriever,
 )
 from .hybrid.constants import MAX_RESULT_LIMIT
-from .innovation import FacetCoverageRetriever
+from .innovation import FCHNSWRetriever, HPRFRetriever
 from .query import QueryGenerator
 from .search_result import SearchResult
 from .sparse import TitleWeightedBM25Retriever
@@ -63,6 +67,9 @@ class SearchEngine(ManagedResource):
 			),
 			"HNSW": partial(self._search_dense, multi_query=False),
 			"MULTI_QUERY_HNSW": partial(self._search_dense, multi_query=True),
+			"FC_HNSW": partial(
+				self._search_dense, multi_query=True, facet_coverage=True
+			),
 			"HRRF": partial(self._search_hybrid, retriever_type=HRRFRetriever),
 			"SEMANTIC_RRF": partial(
 				self._search_hybrid, retriever_type=SemanticRRFRetriever
@@ -70,9 +77,7 @@ class SearchEngine(ManagedResource):
 			"SD_CASCADE": partial(
 				self._search_hybrid, retriever_type=SDCascadeRetriever
 			),
-			"FACET_COVERAGE": partial(
-				self._search_hybrid, retriever_type=FacetCoverageRetriever
-			),
+			"HPRF": partial(self._search_hybrid, retriever_type=HPRFRetriever),
 		}
 		for name, handler in methods.items():
 			self.register_method(name, handler)
@@ -96,13 +101,16 @@ class SearchEngine(ManagedResource):
 	def search(
 		self,
 		request: str,
-		method: str,
+		method: str = "FC_HNSW",
 		limit: int = DEFAULT_RESULT_LIMIT,
 		*,
 		max_terms: int = DEFAULT_MAX_TERMS,
 		max_queries: int = DEFAULT_MAX_QUERIES,
+		sparse_semantic_weight: float = 0.5,
+		dense_semantic_weight: float = 0.5,
+		fusion_weight: float = 0.5,
 	) -> list[SearchResult]:
-		"""Validate shared inputs and dispatch; handlers validate their options."""
+		"""Dispatch research requests; fusion weights apply to HRRF and HPRF."""
 		self._ensure_open()
 		method = validate_text(method, "Search method", strip=True).upper()
 		handler = self._methods.get(method)
@@ -113,6 +121,14 @@ class SearchEngine(ManagedResource):
 			)
 		request = validate_text(request, "Research request", strip=True)
 		validate_integer(limit, "Result limit")
+		if method in {"HRRF", "HPRF"}:
+			# Bind weights only to the built-in handler; custom handlers keep their API.
+			handler = partial(
+				handler,
+				sparse_semantic_weight=sparse_semantic_weight,
+				dense_semantic_weight=dense_semantic_weight,
+				fusion_weight=fusion_weight,
+			)
 		return handler(request, limit, max_terms=max_terms, max_queries=max_queries)
 
 	@staticmethod
@@ -147,6 +163,7 @@ class SearchEngine(ManagedResource):
 		max_terms: int,
 		max_queries: int,
 		multi_query: bool,
+		facet_coverage: bool = False,
 	) -> list[SearchResult]:
 		if multi_query:
 			validate_integer(max_queries, "max_queries")
@@ -158,7 +175,14 @@ class SearchEngine(ManagedResource):
 			else None
 		)
 		query = generator.generate_queries(request, max_queries=1)[0]
-		return retriever.search(query, limit=limit, recall_queries=recall_queries)
+		if facet_coverage:
+			return retriever.search(query, limit=limit, recall_queries=recall_queries)
+		# Explicit baseline methods retain their algorithms on the shared FC instance.
+		if multi_query:
+			return MultiQueryHNSWRetriever.search(
+				retriever, query, limit=limit, recall_queries=recall_queries
+			)
+		return HNSWRetriever.search(retriever, query, limit=limit)
 
 	def _search_hybrid(
 		self,
@@ -168,10 +192,21 @@ class SearchEngine(ManagedResource):
 		max_terms: int,
 		max_queries: int,
 		retriever_type: type[HybridRetriever],
+		sparse_semantic_weight: float = 0.5,
+		dense_semantic_weight: float = 0.5,
+		fusion_weight: float = 0.5,
 	) -> list[SearchResult]:
 		validate_integer(limit, "Result limit", maximum=MAX_RESULT_LIMIT)
 		self._validate_max_terms(max_terms)
 		validate_integer(max_queries, "max_queries")
+		if issubclass(retriever_type, (HRRFRetriever, HPRFRetriever)):
+			sparse_semantic_weight = validate_weight(
+				sparse_semantic_weight, "Sparse semantic weight"
+			)
+			dense_semantic_weight = validate_weight(
+				dense_semantic_weight, "Dense semantic weight"
+			)
+			fusion_weight = validate_weight(fusion_weight, "Fusion weight")
 		generator = self._get_query_generator()
 		# These wrappers borrow the engine's retrievers and own no connections.
 		with retriever_type(
@@ -183,6 +218,16 @@ class SearchEngine(ManagedResource):
 				request, max_queries=max_queries
 			)
 			query = generator.generate_queries(request, max_queries=1)[0]
+			if isinstance(retriever, (HRRFRetriever, HPRFRetriever)):
+				return retriever.search(
+					terms,
+					query,
+					limit=limit,
+					recall_queries=recall_queries,
+					sparse_semantic_weight=sparse_semantic_weight,
+					dense_semantic_weight=dense_semantic_weight,
+					fusion_weight=fusion_weight,
+				)
 			return retriever.search(
 				terms, query, limit=limit, recall_queries=recall_queries
 			)
@@ -201,6 +246,6 @@ class SearchEngine(ManagedResource):
 
 	def _get_dense_retriever(self) -> MultiQueryHNSWRetriever:
 		if self.dense_retriever is None:
-			self.dense_retriever = MultiQueryHNSWRetriever()
+			self.dense_retriever = FCHNSWRetriever()
 			self._resources.callback(self.dense_retriever.close)
 		return self.dense_retriever

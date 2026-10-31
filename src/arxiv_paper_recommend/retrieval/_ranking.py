@@ -1,6 +1,6 @@
-"""Deterministic score ordering and reciprocal rank fusion."""
+"""Deterministic score ordering, rank percentiles, and reciprocal rank fusion."""
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 
 RRF_RANK_CONSTANT = 60
 
@@ -24,12 +24,45 @@ def rank_ids(
 	return sorted(document_ids, key=sort_key)
 
 
-def rrf_scores(rankings: Iterable[Iterable[int]]) -> dict[int, float]:
-	"""Use one-based positions; absence from a list contributes zero."""
+def rank_percentiles(
+	document_ids: Collection[int],
+	scores: Mapping[int, float | None],
+	*,
+	descending: bool = False,
+) -> dict[int, float]:
+	"""Rank available scores using the full pool size; unavailable scores get zero."""
+	candidate_count = len(document_ids)
+	scored_ids = [
+		document_id
+		for document_id in document_ids
+		if scores.get(document_id) is not None
+	]
+	percentiles = {
+		document_id: (candidate_count - rank + 1) / candidate_count
+		for rank, document_id in enumerate(
+			rank_ids(scored_ids, scores, descending=descending), start=1
+		)
+	}
+	return {
+		document_id: percentiles.get(document_id, 0.0) for document_id in document_ids
+	}
+
+
+def rrf_scores(
+	rankings: Iterable[Iterable[int]],
+	*,
+	weights: Iterable[float] | None = None,
+) -> dict[int, float]:
+	"""Use one-based positions and optional list weights; absence contributes zero."""
+	weighted_rankings = (
+		((ranking, 1.0) for ranking in rankings)
+		if weights is None
+		else zip(rankings, weights, strict=True)
+	)
 	scores: dict[int, float] = {}
-	for ranking in rankings:
+	for ranking, weight in weighted_rankings:
 		for rank, document_id in enumerate(ranking, start=1):
-			scores[document_id] = scores.get(document_id, 0.0) + 1.0 / (
+			scores[document_id] = scores.get(document_id, 0.0) + weight / (
 				RRF_RANK_CONSTANT + rank
 			)
 	return scores

@@ -1,7 +1,9 @@
-"""Rerank each candidate list with RRF, then fuse their new rankings."""
+"""Rerank each candidate list with weighted RRF, then fuse their new rankings."""
 
 from collections.abc import Collection, Sequence
 from dataclasses import replace
+
+from arxiv_paper_recommend.common.validation import validate_weight
 
 from .._ranking import rank_ids, rrf_scores
 from ..constants import DEFAULT_RESULT_LIMIT
@@ -20,9 +22,25 @@ class HRRFRetriever(HybridRetriever):
 		*,
 		title_weight: float | None = None,
 		recall_queries: Sequence[str] | None = None,
+		sparse_semantic_weight: float = 0.5,
+		dense_semantic_weight: float = 0.5,
+		fusion_weight: float = 0.5,
 	) -> list[SearchResult]:
-		"""Return final RRF scores, with ties resolved by ascending document ID."""
+		"""Return weighted RRF scores, breaking ties by ascending document ID.
+
+		The semantic weights control raw query similarity within each route;
+		fusion_weight controls the dense route's share in the final fusion.
+		Each route retains at most limit candidates, including at weight endpoints.
+		"""
 		self._validate_inputs(query, limit, recall_queries)
+		sparse_semantic_weight = validate_weight(
+			sparse_semantic_weight, "Sparse semantic weight"
+		)
+		dense_semantic_weight = validate_weight(
+			dense_semantic_weight, "Dense semantic weight"
+		)
+		fusion_weight = validate_weight(fusion_weight, "Fusion weight")
+
 		sparse_results = self.sparse_retriever.search(
 			terms, limit=limit, title_weight=title_weight
 		)
@@ -47,13 +65,19 @@ class HRRFRetriever(HybridRetriever):
 				)
 			)
 
-		sparse_ids = _rerank(sparse_candidates, sparse_scores, dense_scores)
-		dense_ids = _rerank(dense_ids, sparse_scores, dense_scores)
+		sparse_ids = _rerank(
+			sparse_candidates, sparse_scores, dense_scores, sparse_semantic_weight
+		)
+		dense_ids = _rerank(
+			dense_ids, sparse_scores, dense_scores, dense_semantic_weight
+		)
 		candidates = {
 			document_id: dense_candidates[document_id] for document_id in dense_ids
 		}
 		candidates.update(sparse_candidates)
-		scores = rrf_scores((sparse_ids, dense_ids))
+		scores = rrf_scores(
+			(sparse_ids, dense_ids), weights=(1.0 - fusion_weight, fusion_weight)
+		)
 		return [
 			replace(candidates[document_id], score=scores[document_id])
 			for document_id in rank_ids(scores, scores, descending=True)[:limit]
@@ -64,11 +88,13 @@ def _rerank(
 	document_ids: Collection[int],
 	sparse_scores: dict[int, float | None],
 	dense_scores: dict[int, float | None],
+	semantic_weight: float,
 ) -> list[int]:
 	scores = rrf_scores(
 		(
 			rank_ids(document_ids, sparse_scores),
 			rank_ids(document_ids, dense_scores, descending=True),
-		)
+		),
+		weights=(1.0 - semantic_weight, semantic_weight),
 	)
 	return rank_ids(scores, scores, descending=True)

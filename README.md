@@ -12,10 +12,11 @@
 | `TITLE_WEIGHTED_BM25` | 对标题侧最终 BM25 加权后与摘要分数相加，引擎默认 `1:1` | 越小越相关 |
 | `HNSW` | 单查询近似向量召回 | 越大越相关 |
 | `MULTI_QUERY_HNSW` | 多查询召回，合并后按主查询重排 | 越大越相关 |
+| `FC_HNSW`（默认） | 完整多查询召回并集按主查询内积与分面非负内积几何平均加权重排 | 越大越相关 |
 | `HRRF` | 两路候选分别重排，再融合排名 | 越大越相关 |
 | `SEMANTIC_RRF` | 按逐篇语义相似度加权 RRF | 越大越相关 |
 | `SD_CASCADE` | BM25 候选内执行多查询选择与重排 | 越大越相关 |
-| `FACET_COVERAGE` | 在 HRRF 候选上按最弱查询分面覆盖度重排 | 越大越相关 |
+| `HPRF` | 沿用 HRRF 候选，分别按 BM25 与语义百分位重排两路，再加权融合两路排名百分位 | 越大越相关 |
 
 不同方法的分数不能直接比较。目前没有正式质量或性能评估结论。独立来源引用、Web 界面和完整采集清洗流程仍待实现，详见[项目目标与进度](docs/project.md)。
 
@@ -63,6 +64,24 @@ with BM25Retriever() as retriever:
 
 底层检索器还提供 `score(query, document_ids)`，为指定数据库整数 ID 评分。完整接口及分数含义见[检索 API](docs/retrieval.md)。
 
+默认 dense 实现为独立的 `FCHNSWRetriever`，位于 `retrieval.innovation`，可直接使用而无需 LLM：
+
+```python
+from arxiv_paper_recommend.retrieval.innovation import FCHNSWRetriever
+
+with FCHNSWRetriever() as retriever:
+    papers = retriever.search(
+        "retrieval for language model reasoning",
+        limit=10,
+        recall_queries=["evidence retrieval", "multi-step reasoning"],
+    )
+```
+
+该示例需要向量化依赖。`search()`、`score()` 和 `recall()` 统一使用 FC 分数：
+`coverage_weight × GM(max(0, 分面内积)) + (1 − coverage_weight) × 主查询内积`，
+默认权重为 `0.5`。`score()` 和 `recall()` 同样支持 `recall_queries`、`coverage_weight`；
+需要主查询原始内积或完整原始召回并集时，分别使用 `raw_score()`、`raw_recall()`。
+
 ## 自然语言检索与推荐
 
 首次使用时，将 [.env.example](.env.example) 复制为根目录 `.env`，填写 `LLM_API_KEY`、`LLM_API_URL` 和 `LLM_MODEL`；已有文件时直接编辑。
@@ -79,7 +98,7 @@ from arxiv_paper_recommend.retrieval import SearchEngine
 
 request = "How can retrieval improve language model reasoning?"
 with SearchEngine() as engine, RecommendationGenerator() as generator:
-    papers = engine.search(request, method="HRRF", limit=30)
+    papers = engine.search(request, limit=30)  # 默认 FC_HNSW
     recommendations = generator.generate(request, papers, limit=10)
     for recommendation in recommendations:
         print(
@@ -89,7 +108,21 @@ with SearchEngine() as engine, RecommendationGenerator() as generator:
         )
 ```
 
-`SearchEngine` 按需创建并复用组件；方法名不区分大小写。推荐生成也可消费直接调用 BM25 得到的候选。两种生成器均取前 30 条候选并去重，以最多 5 个并发请求逐篇判断，再仅对推荐项调用一次 API 筛选排序；最终返回 `min(limit, 初筛推荐数)` 项，初筛全部不推荐时返回空列表。推荐阶段的全部 API 请求均开启 thinking，查询生成保持关闭。候选限制与输出校验见[推荐生成](docs/recommendation.md)。
+`SearchEngine` 按需创建并复用组件；省略 `method` 时使用 `FC_HNSW`，方法名不区分大小写。显式指定 `HNSW` 或 `MULTI_QUERY_HNSW` 仍执行原算法；混合检索默认复用 FC-HNSW 组件，执行各自的候选选择与融合规则。推荐生成也可消费直接调用 BM25 得到的候选。两种生成器均取前 30 条候选并去重，以最多 5 个并发请求逐篇判断，再仅对推荐项调用一次 API 筛选排序；最终返回 `min(limit, 初筛推荐数)` 项，初筛全部不推荐时返回空列表。推荐阶段的全部 API 请求均开启 thinking，查询生成保持关闭。候选限制与输出校验见[推荐生成](docs/recommendation.md)。
+
+选择 `HRRF` 或 `HPRF` 时可分别配置稀疏候选内的语义占比、稠密候选内的语义占比和最终稠密路占比，三个权重默认均为 `0.5`，范围均为 `[0, 1]`：
+
+```python
+with SearchEngine() as engine:
+    papers = engine.search(
+        request, method="HRRF", limit=30,  # HPRF 支持相同权重
+        sparse_semantic_weight=0.5,
+        dense_semantic_weight=0.5,
+        fusion_weight=0.5,
+    )
+```
+
+底层入口 `retrieval.hybrid.HRRFRetriever.search()` 和 `retrieval.innovation.HPRFRetriever.search()` 支持相同三个权重，分别用于 RRF 和排名百分位融合；公式与边界规则见[检索 API](docs/retrieval.md#混合检索)。HRRF 默认排序保持不变，最终分数因权重归一化变为原来的一半。旧 `FACET_COVERAGE` 入口已移除，迁移方式见[接口迁移](docs/migration.md)。
 
 两种生成器统一返回 `PaperRecommendation`，其中 `reason` 包含 1～2 处 `[[cite]]原文片段[[/cite]]` 引用，程序逐处检查其是否为对应标题或摘要的精确连续原文。`arxiv_paper_recommend.recommendation.innovation` 中的 `EvidenceGroundedRecommendationGenerator` 使用相同的调用方式，进一步通过提示词要求理由中的论文具体主张由标注片段直接支持。原文匹配不保证语义支持性；作者、日期、来源 URL 和完整引用系统仍待补充。原有独立 `evidence` 字段已移除，接口与示例见[证据生成](docs/evidence_grounded_generation.md)。
 
@@ -100,7 +133,7 @@ with SearchEngine() as engine, RecommendationGenerator() as generator:
 | 文档 | 内容 |
 | --- | --- |
 | [项目结构](structure.md) | 模块职责、依赖方向与数据流 |
-| [检索 API](docs/retrieval.md) | 检索接口、八种方法、分数与资源管理 |
+| [检索 API](docs/retrieval.md) | 检索接口、九种方法、分数与资源管理 |
 | [推荐生成](docs/recommendation.md) | 生成接口、候选与响应校验 |
 | [证据生成](docs/evidence_grounded_generation.md) | 原文证据接口、精确匹配与语义验证边界 |
 | [生成对比实验](experiments/generation/README.md) | 固定候选、配对生成与 JSONL 输出 |

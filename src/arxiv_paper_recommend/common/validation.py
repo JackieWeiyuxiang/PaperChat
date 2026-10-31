@@ -1,6 +1,7 @@
 """Input validation shared by retrieval and generation."""
 
 from collections.abc import Sequence
+from math import isfinite
 
 
 def validate_integer(
@@ -32,6 +33,19 @@ def validate_text(value: str, name: str, *, strip: bool = False) -> str:
 	if not value.strip():
 		raise ValueError(f"{name} must not be empty or whitespace.")
 	return value.strip() if strip else value
+
+
+def validate_weight(weight: float, name: str) -> float:
+	"""Accept finite numeric weights from zero through one, excluding booleans."""
+	if isinstance(weight, bool) or not isinstance(weight, (int, float)):
+		raise TypeError(f"{name} must be an integer or a float.")
+	try:
+		weight = float(weight)
+	except OverflowError as error:
+		raise ValueError(f"{name} must be finite and between 0 and 1.") from error
+	if not isfinite(weight) or not 0.0 <= weight <= 1.0:
+		raise ValueError(f"{name} must be finite and between 0 and 1.")
+	return weight
 
 
 def normalize_queries(queries: Sequence[str]) -> list[str]:

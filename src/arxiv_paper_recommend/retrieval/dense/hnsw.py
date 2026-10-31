@@ -56,6 +56,10 @@ class HNSWRetriever(Retriever[str]):
 
 	def score(self, query: str, document_ids: list[int]) -> dict[int, float | None]:
 		"""Return exact inner products for one query and the specified IDs."""
+		return self.raw_score(query, document_ids)
+
+	def raw_score(self, query: str, document_ids: list[int]) -> dict[int, float | None]:
+		"""Return exact inner products independently of subclass score formulas."""
 		self._ensure_open()
 		validate_text(query, "Query")
 		scores: dict[int, float | None] = dict.fromkeys(document_ids)
