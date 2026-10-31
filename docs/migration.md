@@ -1,6 +1,19 @@
 # 接口迁移
 
-本文记录不兼容变更。当前用法见[检索 API](retrieval.md)、[推荐生成](recommendation.md)和[数据与构建](data.md)。旧名称不提供别名或转发模块。
+本文记录不兼容变更。当前用法见[检索 API](retrieval.md)、[推荐生成](recommendation.md)和[数据与构建](data.md)。除明确列出的兼容名称外，旧名称不提供别名或转发模块。
+
+## 两阶段推荐与统一结果（2026-10-31）
+
+两种推荐生成器共同实现 `BaseRecommendationGenerator`，公开 `generate(request, papers, limit=10)` 调用方式不变，统一返回 `list[PaperRecommendation]`：
+
+- 第一阶段逐篇返回严格的 `recommended: bool` 与 `reason: str`，最多 5 个请求并发。
+- `reason` 必须包含 1～2 处 `[[cite]]原文片段[[/cite]]`，两种实现都校验精确原文，包括不推荐项。
+- 第二阶段只筛选排序初筛推荐项，最终数量为 `min(limit, 初筛推荐数)`，初筛全部不推荐时返回空列表。
+- 所有推荐调用开启 `reasoning.effort="high"` 并省略 `temperature`；查询生成设置不变。
+
+`EvidenceGroundedRecommendation` 保留原有导入路径，现为 `PaperRecommendation` 的别名。独立 `evidence` 字段已移除；调用方应使用包含引用标记的 `reason`，不再访问 `item.evidence` 或以旧 `evidence` 参数构造结果。生成对比脚本也统一保存带标记的 `reason`，不再写入单独的 `evidence`。
+
+以下结构调整表保留更早的迁移记录；推荐响应校验与数量规则以本节及[推荐生成](recommendation.md)为准。
 
 ## 本轮结构与命名调整
 
@@ -45,7 +58,7 @@ with MultiQueryHNSWRetriever() as retriever:
 
 数据库、JSONL、NPZ 的字段不变：存储的 `id`、`doc_id` 映射到 Python 结果的 `document_id`、`arxiv_id`。现有数据库和向量索引无需重建。检索算法、默认参数、分数尺度及查询生成调用次数保持不变。
 
-生成结果的校验有所加强：查询生成拒绝空白项；推荐响应先完整检查未知论文、重复论文和空白理由，再截取请求数量，截断范围外的错误也会被报告。
+查询生成拒绝空白项。当前推荐流程检查全部初筛理由及引用，再校验集中排序结果的候选归属、去重与准确数量；不会通过截断响应跳过错误项。
 
 ## 历史迁移记录（本轮重构前）
 

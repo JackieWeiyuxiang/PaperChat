@@ -235,7 +235,7 @@ generate_queries(request: str, max_queries=4) -> list[str]
 | `LLM_API_URL` | 客户端 `base_url` |
 | `LLM_MODEL` | 非空模型名称，构造时校验 |
 
-当前调用为 `OpenAI.responses.parse`，传入 Pydantic `text_format`、`reasoning={"effort": "none"}` 和 `temperature=0`。服务与模型必须支持该组合；没有自动切换其他生成接口的逻辑。
+当前调用为 `OpenAI.responses.parse`，传入 Pydantic `text_format`。查询生成使用 `reasoning={"effort": "none"}` 和 `temperature=0`；[推荐生成](recommendation.md)的逐篇判断及集中排序均使用 `reasoning={"effort": "high"}`，不发送 `temperature`。共享调用层支持按调用指定 reasoning，服务与模型必须支持相应组合；没有自动切换其他生成接口的逻辑。
 
 查询生成不接收检索结果，也不生成推荐理由。自然语言日期、分类等约束只保留在提示词中，不构成元数据硬过滤。
 

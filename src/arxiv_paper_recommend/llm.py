@@ -1,6 +1,8 @@
 """Shared structured generation and explicit LLM client ownership."""
 
-from openai import OpenAI
+from typing import Literal
+
+from openai import OpenAI, omit
 from pydantic import BaseModel
 
 from .common.lifecycle import ManagedResource
@@ -35,13 +37,15 @@ class StructuredGenerator(ManagedResource):
 		request: str,
 		instructions: str,
 		result_model: type[Result],
+		*,
+		reasoning_effort: Literal["none", "high"] = "none",
 	) -> Result:
-		"""Make one structured call and require a parsed response."""
+		"""Require a parsed response, omitting temperature when thinking is enabled."""
 		self._ensure_open()
 		response = self.client.responses.parse(
 			model=self.model,
-			reasoning={"effort": "none"},
-			temperature=0,
+			reasoning={"effort": reasoning_effort},
+			temperature=0 if reasoning_effort == "none" else omit,
 			instructions=instructions,
 			input=request,
 			text_format=result_model,

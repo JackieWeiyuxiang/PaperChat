@@ -38,7 +38,7 @@ Baseline 与 Innovation 必须固定相同的：
 - 推荐数量上限；
 - 生成模型和 API 配置。
 
-唯一改变的是下游生成方法。
+两种生成器都采用最多 5 个并发的逐篇判断，再仅对初筛推荐项集中筛选排序；两阶段均使用 `reasoning.effort="high"`，最终数量为 `min(推荐上限, 初筛推荐数)`。共同流程及输出格式相同，变化仅为逐篇判断提示词：基础版依据完整标题和摘要，证据增强版要求具体主张仅由标注的引用片段支持。应同时记录并比较两种方法实际返回的推荐数量。
 
 ## 本地输出
 
@@ -77,11 +77,11 @@ uv run python experiments/generation/run_comparison.py --recommendation-limit 3
 | `experiment/generation/candidates.jsonl` | `query_id`、`request`、可选问题元数据、`retrieval` 配置与耗时、按检索顺序排列的 `candidates` |
 | `experiment/generation/comparison.jsonl` | 请求与检索元数据、`candidate_count`、生成模型与数量上限，以及 `generation.baseline` 和 `generation.evidence_grounded` 两套结果 |
 
-每个生成结果包含 `status`、`elapsed_seconds` 和 `recommendations`；成功时另含 `returned_count`，捕获到 `RuntimeError` 时记录 `error_type` 和 `error_message`。推荐项保留论文 ID、标题、摘要、原候选排名、检索分数和理由；证据生成结果额外包含 `evidence`。`candidate_count` 是输入文件中的候选数量，不代表去重并截断后的实际模型输入数量。
+每个生成结果包含 `status`、`elapsed_seconds` 和 `recommendations`；成功时另含 `returned_count`，捕获到 `RuntimeError` 时记录 `error_type` 和 `error_message`。两种方法的推荐项都保留论文 ID、标题、摘要、原候选排名、检索分数和 `reason`，理由中的 1～2 处 `[[cite]]原文片段[[/cite]]` 标记原样保存，不再输出独立 `evidence` 字段。`candidate_count` 是输入文件中的候选数量，不代表去重并截断后的实际模型输入数量。
 
 比较脚本只捕获生成调用中的 `RuntimeError`；其他客户端或解析异常会直接传播并中断运行。逐条刷新可保留此前完成的查询，但当前不支持断点续跑；同一查询的两种方法全部运行结束后才写入比较记录。
 
-证据精确匹配在生成器内部执行，校验失败会使整次生成报错，不保存失败响应的逐项内容。脚本不自动汇总成功率、证据通过率、质量指标或费用；正式统计需定义分母及失败处理，不能仅凭成功响应推断所有生成证据的通过率。
+两种生成器都会对全部逐篇判断中的引用执行原文精确匹配，包括不推荐项；校验失败会使整次生成报错，不保存失败响应的逐项内容。第二阶段只接收推荐项，返回准确数量的有序 ID，理由沿用第一阶段。脚本不自动汇总成功率、证据通过率、质量指标或费用；正式统计需定义分母及失败处理，不能仅凭成功响应推断所有生成证据的通过率。
 
 ## 评价方向
 
@@ -106,10 +106,11 @@ uv run python experiments/generation/run_comparison.py --recommendation-limit 3
 - 固定候选导出框架；
 - Baseline 与 Innovation 配对运行框架；
 - JSONL 增量保存；
-- 参数、语法和命令行接口检查。
+- 统一推荐结果及引用标记的序列化。
 
 尚未执行：
 
+- 本轮两阶段流程的运行验证（未运行测试或真实 API）；
 - 最终检索配置确认；
 - 正式付费实验；
 - 人工标注与一致率计算；

@@ -1,15 +1,7 @@
-"""Result models for evidence-grounded paper recommendations."""
+"""Compatibility name for the shared recommendation result model."""
 
-from dataclasses import dataclass
+from ..models import PaperRecommendation
 
-from arxiv_paper_recommend.retrieval import SearchResult
+EvidenceGroundedRecommendation = PaperRecommendation
 
-
-@dataclass(frozen=True)
-class EvidenceGroundedRecommendation:
-	"""A recommended paper with verifiable supporting evidence."""
-
-	rank: int
-	paper: SearchResult
-	evidence: str
-	reason: str
+__all__ = ["EvidenceGroundedRecommendation"]

@@ -1,57 +1,34 @@
 # 基于可验证证据的论文推荐生成
 
-本文记录论文推荐生成阶段的下游创新、接口、验证边界及待执行评估。基础生成方法见[推荐生成](recommendation.md)，整体评估要求见[实验与评估](evaluation.md)，可复现实验脚本见[生成对比实验](../experiments/generation/README.md)。
+本文说明证据增强版的判断约束及验证边界。两阶段编排、输入校验、引用格式和错误行为与[基础生成器](recommendation.md)一致；整体评估见[实验与评估](evaluation.md)，可复现实验脚本见[生成对比实验](../experiments/generation/README.md)。
 
-## 研究动机
+## 方法与基础版的区别
 
-基础 `RecommendationGenerator` 从最多30篇检索候选中选择并排序论文，为每篇论文生成一至两句推荐理由。模型输入包含用户研究需求、论文 ID、标题和摘要。
+两种生成器都实现 `BaseRecommendationGenerator`，共享以下流程：
 
-基础方法要求理由仅依据候选论文的标题和摘要，但最终结果只返回 `reason`，没有同时提供能够让用户直接核查的原始证据。程序会检查论文 ID、重复项和空白理由，但不能验证理由中的具体说法是否真的存在于标题或摘要。
+```text
+研究需求 + 检索候选
+→ 取前 30 条，按 arXiv ID 去重
+→ 每篇独立判断（最多 5 个并发请求，thinking=high）
+→ recommended: bool + reason: str（内嵌 1～2 处原文引用）
+→ 检查全部理由中的引用精确匹配
+→ 只将初筛推荐项交给 API 筛选排序（thinking=high）
+→ 返回 min(limit, 初筛推荐数) 篇及原有理由
+```
 
-本项目因此实现 Evidence-Grounded Recommendation Generation。该方法要求生成模型为每篇推荐论文同时返回：
+初筛推荐数为 0 时跳过第二阶段，直接返回空列表。初筛不推荐项不会交给第二阶段；第二阶段仅返回有序论文 ID，不重写理由或引用。
 
-- 论文 ID；
-- 标题或摘要中的连续原文证据；
-- 基于该证据生成的推荐理由。
+基础版允许依据完整标题和摘要解释相关性，并标注有助核查的原文。证据增强版进一步要求：理由中的每项论文具体方法、结果、能力或细节，都必须被标注的原文片段直接支持，不能依赖未引用的标题或摘要内容补充主张。短片段不足以支持理由时应选更长的片段，或增加第二处引用。
 
-## 方法概览
+不能支持推荐时返回 `recommended=False`，引用论文实际范围并说明匹配不足；不因为摘要未提及某方法，就声称论文没有该方法。上述语义要求由提示词约束，程序不自动证明其成立。
 
-整体流程如下：
-
-用户研究需求
-→ 固定检索方法返回候选论文
-→ 截取前30篇并按照 arXiv ID 去重
-→ LLM 选择并重新排序论文
-→ 每篇论文复制一个连续原文 Evidence
-→ 根据 Evidence 生成一句推荐理由
-→ 程序检查 Evidence 是否确实存在于标题或摘要
-→ 返回最多10篇推荐结果
-
-生成模型只能选择输入候选中的论文，不允许使用外部知识或虚构论文。
-
-## 公开接口
-
-创新代码位于：
-
-- `src/arxiv_paper_recommend/recommendation/innovation/models.py`
-- `src/arxiv_paper_recommend/recommendation/innovation/evidence_generator.py`
-- `src/arxiv_paper_recommend/recommendation/innovation/__init__.py`
-
-公开类包括：
-
-- `EvidenceGroundedRecommendation`
-- `EvidenceGroundedRecommendationGenerator`
-
-`EvidenceGroundedRecommendation` 包含以下字段：
-
-- `rank`：从1开始的推荐排名；
-- `paper`：原始 `SearchResult`，保留检索分数；
-- `evidence`：标题或摘要中的连续原文；
-- `reason`：解释论文与用户需求关系的推荐理由。
-
-生成接口接收非空研究需求、`SearchResult` 列表和1至10之间的推荐数量。候选为空时直接返回空列表，不调用 LLM。
+## 公开接口与统一结果
 
 ```python
+from arxiv_paper_recommend.recommendation import (
+    BaseRecommendationGenerator,
+    PaperRecommendation,
+)
 from arxiv_paper_recommend.recommendation.innovation import (
     EvidenceGroundedRecommendation,
     EvidenceGroundedRecommendationGenerator,
@@ -60,14 +37,37 @@ from arxiv_paper_recommend.recommendation.innovation import (
 
 ```text
 EvidenceGroundedRecommendationGenerator(*, model=None, client=None)
-generate(request: str, papers: list[SearchResult], limit=10) -> list[EvidenceGroundedRecommendation]
+
+generate(request: str, papers: list[SearchResult], limit=10) -> list[PaperRecommendation]
 ```
 
-构造参数、LLM 配置和客户端所有权沿用[基础生成器](recommendation.md)：显式 `model` 覆盖配置；注入客户端由调用方关闭，自建客户端通过生成器的上下文管理或 `close()` 关闭。关闭后不能继续生成。结果为冻结数据类，`paper` 保留原始候选引用。当前 `innovation` 包直接导出生成器，导入该包时会加载共享 LLM 模块。
+两种具体生成器统一返回冻结数据类 `PaperRecommendation`：
+
+| 字段 | 含义 |
+| --- | --- |
+| `rank` | 从 1 开始的推荐名次 |
+| `paper` | 原始 `SearchResult` 引用，保留检索分数 |
+| `reason` | 理由及 1～2 处 `[[cite]]原文片段[[/cite]]` 引用 |
+
+`EvidenceGroundedRecommendation` 现在是 `PaperRecommendation` 的别名，保留原有导入路径。独立 `evidence` 字段已移除；旧调用方应从 `reason` 中读取带标记的引用，见[接口迁移](migration.md)。
+
+模型配置、客户端注入及资源所有权沿用基础生成器：显式 `model` 覆盖配置，自建客户端由生成器关闭，注入客户端由调用方关闭。当前 `innovation` 包直接导出生成器，导入时会加载共享 LLM 模块。
+
+## 引用格式与验证
+
+第一阶段结构化输出严格只有 `recommended` 和 `reason` 两个字段，额外字段被拒绝；布尔值不接受字符串或数字替代。推荐和不推荐的理由均需含 1～2 处引用：
+
+```text
+该文与研究需求的关系……，依据为：[[cite]]连续原文一[[/cite]]；[[cite]]连续原文二[[/cite]]。
+```
+
+引用标记必须正确配对、不嵌套。每处引用须非空白，并逐字符匹配对应论文标题或摘要中的一个连续片段；不得改写或在同一对标记内拼接不连续片段。缺失摘要时可引用标题。不再使用旧版单个 `evidence` 字段的 20～600 字符限制。
+
+所有逐篇响应都会校验，包括最终未被选中和判为不推荐的论文。任一引用校验失败使整次生成抛出 `RuntimeError`，不跳过该项或返回部分结果。第二阶段还校验数量、候选归属和去重；客户端及结构化解析异常直接传播。完整错误契约见[推荐生成](recommendation.md#thinking-与错误处理)。
 
 ## 使用示例
 
-以下先用 BM25 检索，无需向量化依赖；生成阶段仍需有效 LLM 配置。安装及 `.env` 配置见 [README](../README.md)。
+以下使用 BM25 检索；生成阶段仍需有效 LLM 配置。
 
 ```python
 from arxiv_paper_recommend.recommendation.innovation import (
@@ -83,121 +83,17 @@ with BM25Retriever() as retriever, EvidenceGroundedRecommendationGenerator() as 
     recommendations = generator.generate(request, papers, limit=10)
     for item in recommendations:
         print(item.rank, item.paper.arxiv_id)
-        print(item.evidence)
-        print(item.reason)
+        print(item.reason)  # Includes [[cite]]...[[/cite]] source spans.
 ```
 
-## 结构化生成
+## 能力边界与公平比较
 
-LLM 的结构化输出中，每个推荐项必须包含：
+成功返回时，两种生成器都保证候选来源正确、没有重复、数量符合初筛推荐数与 `limit`、理由非空，以及 1～2 处标注引用精确存在于对应标题或摘要。精确匹配不能证明引用与需求相关、理由完全被引用语义支持、摘要陈述本身正确，或所选论文一定最有用。本实现不提供论文全文、作者、URL、日期或 BibTeX。
 
-- 非空 `doc_id`；
-- 长度为20至600个字符的 `evidence`；
-- 非空 `reason`。
+比较基础版与证据增强版时，固定研究需求、检索候选及顺序、候选数量、推荐上限、模型、thinking 配置和并发上限。共同编排与输出格式相同，变化仅为逐篇判断提示词；两种提示词可能产生不同的初筛推荐数，因此需同时报告最终返回数量。
 
-最多允许返回10个推荐项。额外字段会被 Pydantic 拒绝。
+`prepare_candidates.py` 保存固定候选，`run_comparison.py` 配对运行并记录输出、状态和耗时，两种结果均通过 `reason` 保存引用标记。脚本只捕获 `RuntimeError`，客户端及解析异常仍可能中断。失败响应不保存逐项内容，因此不能从成功输出中引用全部通过，推导所有模型响应的逐项证据通过率。
 
-提示词要求 Evidence：
+正式评估仍需记录生成成功率、错误类型、返回数量、延迟与费用，并人工评价相关性、faithfulness、answer relevance 及引用对理由的语义支持。标注应隐藏系统名称，并由至少两名标注者独立完成重叠样本，报告原始一致率；条件允许时报告 Cohen’s kappa。
 
-- 必须逐字复制自对应论文的标题或摘要；
-- 必须是单个连续文本片段；
-- 不得改写或拼接不连续片段；
-- 不得自行添加引号或省略号；
-- 应包含足够信息支持推荐理由。
-
-提示词要求 Reason 为一句简洁说明，不应引入 Evidence 中没有明确出现的论文方法、结果、能力或细节。如果较短证据不足以支持理由，模型应选择更长的连续证据；如果没有合适证据，应省略该论文。程序不自动检查句子数量或语义支持性。
-
-## 程序验证
-
-生成完成后，程序执行以下检查：
-
-- 返回的论文 ID 必须属于输入候选；
-- 同一论文不得重复推荐；
-- Reason 不得为空；
-- Evidence 不得为空；
-- Evidence 必须是该论文标题或摘要中的精确连续子字符串。
-
-如果 Evidence 不满足精确原文检查，生成器会抛出 `RuntimeError`，不会把该结果作为有效推荐返回。
-
-程序先去掉 Evidence 和 Reason 的首尾空白，对结构化返回的整个推荐列表进行检查，然后截取前 `limit` 项。任何一项校验失败都会使本次调用报错，即使该项位于请求数量之外；不会跳过错误项或自动重试。无结构化结果时同样报 `RuntimeError`；输入类型和取值错误、客户端及结构化解析异常会直接传播。
-
-## 能够保证的性质
-
-对于成功返回的结果，程序能够保证：
-
-- 论文来自提供的检索候选；
-- 同一论文不会重复出现；
-- Evidence 不是空白文本；
-- Evidence 确实逐字存在于论文标题或摘要；
-- Reason 不是空白文本。
-
-## 不能自动保证的性质
-
-精确字符串验证不能证明：
-
-- Evidence 一定与用户需求相关；
-- Evidence 一定完整表达论文结论；
-- Reason 在语义上完全被 Evidence 支持；
-- 推荐论文一定是候选中最有用的论文；
-- 摘要中的原始陈述本身一定正确。
-
-这些性质仍需通过人工标注或明确记录的模型裁判进行评价。
-
-该实现提供的是可核查的标题或摘要证据，不是完整引用系统。目前不补充作者、URL、发表日期、BibTeX 或论文全文证据。
-
-## 公平对比设计
-
-基础方法与创新方法必须使用完全相同的：
-
-- 用户研究需求；
-- 固定检索候选及顺序；
-- 候选数量；
-- 推荐数量上限；
-- 生成模型和 API 配置。
-
-唯一改变的是下游生成方法。
-
-`experiments/generation/prepare_candidates.py` 负责检索一次并保存固定候选。`experiments/generation/run_comparison.py` 读取相同候选，分别运行 Baseline 与 Innovation，并保存结果、状态和耗时。
-
-## 评价指标
-
-生成器在返回结果前执行精确原文校验，实验脚本负责记录成功输出、捕获到的 `RuntimeError`、返回数量和耗时。尚需执行正式实验并基于运行记录计算汇总指标，先明确以下指标的分母和错误处理口径：
-
-- Evidence 精确原文验证通过率；
-- 生成成功率和错误类型分布；
-- 每条查询的返回数量；
-- 检索与生成耗时。
-
-当前校验失败时整次生成报错，实验输出不保留失败响应中的逐项证据；不能用成功输出中证据全部通过，直接推导所有模型生成证据的逐项通过率。需区分查询级成功率与证据项级通过率，后者还需要额外记录失败响应。
-
-人工评价至少包括：
-
-- Context relevance：推荐论文是否与研究需求相关；
-- Faithfulness：Reason 中的主张是否被标题或摘要支持；
-- Answer relevance：Reason 是否解释论文与用户需求的联系；
-- Evidence support：Evidence 是否在语义上支持对应 Reason。
-
-人工评价应隐藏系统名称，并由至少两名标注者独立完成重叠样本。正式结果应报告原始一致率；条件允许时同时报告 Cohen’s kappa。分歧应在保留原始标签后进行讨论或仲裁。
-
-## 当前状态
-
-已经完成：
-
-- 基础生成端到端运行验证；
-- Evidence-Grounded Generator 实现；
-- 精确 Evidence 验证；
-- 一条查询上的功能性 API 测试；
-- 固定候选导出框架；
-- Baseline 与 Innovation 配对运行框架。
-
-尚未完成：
-
-- 最终检索方法和 query instruction 确认；
-- 最终生成模型确认；
-- 全量正式实验；
-- 人工生成质量标注；
-- 标注者一致率计算；
-- 正式延迟、吞吐和费用统计；
-- 统计结果与显著性分析。
-
-在正式评估完成前，不能据此宣称 Innovation 已优于 Baseline。
+本轮两阶段实现尚未执行真实 API 验证或正式质量评估；此前版本的功能性运行不能作为新流程的效果证据。在正式评估完成前，不能宣称证据增强版优于基础版。

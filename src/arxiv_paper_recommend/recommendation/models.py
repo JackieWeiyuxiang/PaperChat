@@ -7,7 +7,7 @@ from arxiv_paper_recommend.retrieval import SearchResult
 
 @dataclass(frozen=True)
 class PaperRecommendation:
-	"""A retrieved paper paired with its recommendation rank and reason."""
+	"""A ranked paper with a reason containing one or two marked source citations."""
 
 	rank: int
 	paper: SearchResult

@@ -52,9 +52,9 @@
 
 ## 推荐生成与性能评估（待执行）
 
-固定检索候选及顺序、研究需求、推荐数量上限、生成模型和 API 配置后，比较基础 `RecommendationGenerator` 与 `EvidenceGroundedRecommendationGenerator`。两种方法的提示词与输出结构随方法变化，其余条件应保持一致。若引入多项创新，分别记录单项和组合结果。推荐任务需说明采用哪些任务质量指标及其理由；没有参考推荐理由时，不应虚构参考答案并报告摘要指标。
+固定检索候选及顺序、研究需求、推荐数量上限、生成模型、API 配置、thinking 强度及并发上限后，比较基础 `RecommendationGenerator` 与 `EvidenceGroundedRecommendationGenerator`。两种方法共用逐篇判断与集中筛选排序流程、统一结果和引用格式，变化仅为逐篇判断提示词，其余条件应保持一致。最终数量为 `min(limit, 初筛推荐数)`，需同时报告实际返回数量。若引入多项创新，分别记录单项和组合结果。推荐任务需说明采用哪些任务质量指标及其理由；没有参考推荐理由时，不应虚构参考答案并报告摘要指标。
 
-现有脚本先通过 `prepare_candidates.py` 检索并保存候选，再通过 `run_comparison.py` 读取同一文件运行两种生成器。默认输出在被 Git 忽略的 `experiment/generation/`，使用方式与字段见[生成对比实验](../experiments/generation/README.md)。证据生成器在返回前执行精确原文校验；脚本保存成功输出及捕获到的 `RuntimeError`，不自动计算证据通过率或人工质量指标，API 和结构化解析异常仍可能中断运行。生成器最多消费前 30 个候选，超过此数量的导出候选不参与生成。
+现有脚本先通过 `prepare_candidates.py` 检索并保存候选，再通过 `run_comparison.py` 读取同一文件运行两种生成器。默认输出在被 Git 忽略的 `experiment/generation/`，使用方式与字段见[生成对比实验](../experiments/generation/README.md)。两种生成器均对全部初筛理由中的 `[[cite]]原文[[/cite]]` 执行精确原文校验，包含不推荐项；第二阶段仅处理推荐项，最终理由复用第一阶段结果。脚本保存成功输出及捕获到的 `RuntimeError`，不自动计算证据通过率或人工质量指标，API 和结构化解析异常仍可能中断运行。生成器先截取前 30 个候选再去重，超过此数量的导出候选不参与生成。本轮两阶段流程尚未执行运行验证。
 
 生成评估至少覆盖理由的 faithfulness（每项主张是否有摘要依据）、answer relevance（是否回答研究需求）、context relevance/precision（上下文是否相关）、引用对应关系，以及证据生成方法中 evidence 对 reason 的语义支持性。精确字符串匹配不能替代这些判断。可结合人工标注与 RAGAS 等工具，但质量评估实现和结果目前均未提供；若使用模型裁判，需保存裁判模型、版本和判定规则。
 

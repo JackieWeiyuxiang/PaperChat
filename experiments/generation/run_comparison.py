@@ -10,7 +10,11 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from arxiv_paper_recommend.recommendation import RecommendationGenerator
+from arxiv_paper_recommend.recommendation import (
+	BaseRecommendationGenerator,
+	PaperRecommendation,
+	RecommendationGenerator,
+)
 from arxiv_paper_recommend.recommendation.innovation import (
 	EvidenceGroundedRecommendationGenerator,
 )
@@ -77,9 +81,7 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
 
 			record = json.loads(stripped)
 			if not isinstance(record, dict):
-				raise ValueError(
-					f"JSONL line {line_number} must contain one object."
-				)
+				raise ValueError(f"JSONL line {line_number} must contain one object.")
 			records.append(record)
 
 	if not records:
@@ -129,13 +131,11 @@ def _deserialize_candidates(
 
 
 def _serialize_recommendation(
-	item: Any,
+	item: PaperRecommendation,
 	candidate_ranks: dict[str, int],
-	*,
-	include_evidence: bool,
 ) -> dict[str, Any]:
-	"""Convert one generated recommendation into experiment data."""
-	result = {
+	"""Preserve the marked reason in the shared experiment result format."""
+	return {
 		"rank": item.rank,
 		"arxiv_id": item.paper.arxiv_id,
 		"title": item.paper.title,
@@ -144,19 +144,14 @@ def _serialize_recommendation(
 		"retrieval_score": item.paper.score,
 		"reason": item.reason,
 	}
-	if include_evidence:
-		result["evidence"] = item.evidence
-	return result
 
 
 def _run_generator(
-	generator: Any,
+	generator: BaseRecommendationGenerator,
 	request: str,
 	papers: list[SearchResult],
 	candidate_ranks: dict[str, int],
 	limit: int,
-	*,
-	include_evidence: bool,
 ) -> dict[str, Any]:
 	"""Run one generator, measure latency, and record validation failures."""
 	started_at = perf_counter()
@@ -177,12 +172,7 @@ def _run_generator(
 		"elapsed_seconds": perf_counter() - started_at,
 		"returned_count": len(recommendations),
 		"recommendations": [
-			_serialize_recommendation(
-				item,
-				candidate_ranks,
-				include_evidence=include_evidence,
-			)
-			for item in recommendations
+			_serialize_recommendation(item, candidate_ranks) for item in recommendations
 		],
 	}
 
@@ -226,7 +216,6 @@ def main() -> None:
 						papers,
 						candidate_ranks,
 						args.recommendation_limit,
-						include_evidence=False,
 					)
 					innovation_result = _run_generator(
 						innovation,
@@ -234,7 +223,6 @@ def main() -> None:
 						papers,
 						candidate_ranks,
 						args.recommendation_limit,
-						include_evidence=True,
 					)
 
 					comparison = {
@@ -254,9 +242,7 @@ def main() -> None:
 							"evidence_grounded": innovation_result,
 						},
 					}
-					output.write(
-						json.dumps(comparison, ensure_ascii=False) + "\n"
-					)
+					output.write(json.dumps(comparison, ensure_ascii=False) + "\n")
 					output.flush()
 
 					print(
