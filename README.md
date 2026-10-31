@@ -8,8 +8,8 @@
 
 | 检索方法 | 流程 | 分数方向 |
 | --- | --- | --- |
-| `BM25` | 关键词与短语匹配 | 越小越相关 |
-| `TITLE_WEIGHTED_BM25` | 标题权重为 3、摘要权重为 1 的 BM25 | 越小越相关 |
+| `BM25` | 标题、摘要分别计算 BM25，按 `1:1` 相加 | 越小越相关 |
+| `TITLE_WEIGHTED_BM25` | 对标题侧最终 BM25 加权后与摘要分数相加，引擎默认 `1:1` | 越小越相关 |
 | `HNSW` | 单查询近似向量召回 | 越大越相关 |
 | `MULTI_QUERY_HNSW` | 多查询召回，合并后按主查询重排 | 越大越相关 |
 | `HRRF` | 两路候选分别重排，再融合排名 | 越大越相关 |
@@ -19,9 +19,11 @@
 
 不同方法的分数不能直接比较。目前没有正式质量或性能评估结论。独立来源引用、Web 界面和完整采集清洗流程仍待实现，详见[项目目标与进度](docs/project.md)。
 
+稀疏检索为标题、摘要分别建立单字段 FTS5 索引，各自使用独立的长度统计和 IDF。总分为 `title_weight × 标题 BM25 + 摘要 BM25`；直接调用标题加权检索器可在每次调用中指定权重，详见[检索 API](docs/retrieval.md#titleweightedbm25retriever)。
+
 ## 安装
 
-要求 Python >= 3.14、uv，以及支持 FTS5 的 SQLite。在项目根目录运行：
+要求 Python >= 3.14、uv，以及支持 FTS5 的 SQLite >= 3.35（评分使用物化 CTE）。在项目根目录运行：
 
 ```powershell
 uv sync
@@ -39,6 +41,8 @@ uv sync --extra vectorization
 uv run python -m arxiv_paper_recommend.corpus.build_database
 uv run python -m arxiv_paper_recommend.corpus.build_index
 ```
+
+从旧版双字段 FTS5 数据库升级时，只需运行上述 `build_database` 命令，即可在保留已有论文整数 ID 的同时重建标题、摘要索引并移除旧索引；本次仅索引结构与评分方式变化，无需重建 FAISS。检索器只读打开数据库，不会自动升级旧索引。
 
 自定义路径和更新规则见[数据与索引构建](docs/data.md)。项目当前使用 Python API，没有检索命令或 Web 启动入口。
 

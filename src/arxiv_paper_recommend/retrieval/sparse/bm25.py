@@ -1,4 +1,4 @@
-"""SQLite FTS5 keyword retrieval and BM25 scoring."""
+"""SQLite FTS5 retrieval with independently scored title and abstract fields."""
 
 from pathlib import Path
 from sqlite3 import SQLITE_LIMIT_VARIABLE_NUMBER, connect
@@ -29,7 +29,7 @@ class BM25Retriever(Retriever[list[str]]):
 	def search(
 		self, query: list[str], limit: int = DEFAULT_RESULT_LIMIT
 	) -> list[SearchResult]:
-		"""Match any normalized keyword or phrase, ordered by ascending BM25.
+		"""Match any keyword or phrase, ordered by summed field BM25 then ID.
 
 		Accept 1–20 distinct terms after normalization and a positive integer
 		limit. The escaped OR query must not exceed 1,347 characters.
@@ -64,17 +64,18 @@ class BM25Retriever(Retriever[list[str]]):
 			raise ValueError(
 				f"Search query length must be at most {MAX_QUERY_LENGTH} characters."
 			)
-		score_expression, score_parameters = self._score_sql(title_weight)
-		order_expression = "rank" if title_weight is None else "score"
+		score_sql, score_parameters = self._score_sql(_build_query(terms), title_weight)
 		rows = self.conn.execute(
 			f"""
-            SELECT documents_fts.rowid, doc_id, title, abstract, {score_expression} AS score
-            FROM documents_fts
-            WHERE documents_fts MATCH ?
-            ORDER BY {order_expression}
-            LIMIT ?
+            {score_sql}
+            SELECT documents.id, documents.doc_id, documents.title,
+                   documents.abstract, document_scores.score
+            FROM document_scores
+            JOIN documents ON documents.id = document_scores.document_id
+            ORDER BY document_scores.score, documents.id
+            LIMIT :limit
         """,
-			(*score_parameters, _build_query(terms), limit),
+			{**score_parameters, "limit": limit},
 		).fetchall()
 		return [SearchResult(*row) for row in rows]
 
@@ -94,9 +95,9 @@ class BM25Retriever(Retriever[list[str]]):
 			return scores
 
 		match_query = _build_query(terms)
-		score_expression, score_parameters = self._score_sql(title_weight)
-		batch_size = (
-			self.conn.getlimit(SQLITE_LIMIT_VARIABLE_NUMBER) - len(score_parameters) - 1
+		_, score_parameters = self._score_sql(match_query, title_weight)
+		batch_size = self.conn.getlimit(SQLITE_LIMIT_VARIABLE_NUMBER) - len(
+			score_parameters
 		)
 		for start in range(0, len(document_ids), batch_size):
 			batch = document_ids[start : start + batch_size]
@@ -107,25 +108,61 @@ class BM25Retriever(Retriever[list[str]]):
 			).fetchall()
 			for (document_id,) in documents:
 				scores[document_id] = 0.0
+			score_sql, parameters = self._score_sql(match_query, title_weight, batch)
 			rows = self.conn.execute(
 				f"""
-                SELECT rowid, {score_expression}
-                FROM documents_fts
-                WHERE documents_fts MATCH ? AND documents_fts.rowid IN ({placeholders})
+                {score_sql}
+                SELECT document_id, score FROM document_scores
             """,
-				[*score_parameters, match_query, *batch],
+				parameters,
 			).fetchall()
 			scores.update(rows)
 		return scores
 
 	@staticmethod
 	def _score_sql(
+		match_query: str,
 		title_weight: float | None,
-	) -> tuple[str, tuple[float, ...]]:
-		"""Bind only the title weight; the abstract weight is always one."""
-		if title_weight is None:
-			return "rank", ()
-		return "bm25(documents_fts, ?, 1.0)", (title_weight,)
+		document_ids: list[int] | None = None,
+	) -> tuple[str, dict[str, str | float | int]]:
+		"""Materialize field scores before summing, optionally filtering IDs.
+
+		Named parameters are reused by both MATCH branches, so each query,
+		weight and document ID consumes only one SQLite variable slot.
+		"""
+		parameters: dict[str, str | float | int] = {
+			"match_query": match_query,
+			"title_weight": 1.0 if title_weight is None else title_weight,
+		}
+		id_filter = ""
+		if document_ids is not None:
+			id_parameters = {
+				f"document_id_{index}": document_id
+				for index, document_id in enumerate(document_ids)
+			}
+			parameters.update(id_parameters)
+			placeholders = ",".join(f":{name}" for name in id_parameters)
+			id_filter = f"AND rowid IN ({placeholders})"
+		return (
+			f"""
+            WITH field_scores AS MATERIALIZED (
+                SELECT rowid AS document_id,
+                       :title_weight * bm25(documents_title_fts) AS score
+                FROM documents_title_fts
+                WHERE documents_title_fts MATCH :match_query {id_filter}
+                UNION ALL
+                SELECT rowid AS document_id, bm25(documents_abstract_fts) AS score
+                FROM documents_abstract_fts
+                WHERE documents_abstract_fts MATCH :match_query {id_filter}
+            ),
+            document_scores AS (
+                SELECT document_id, SUM(score) AS score
+                FROM field_scores
+                GROUP BY document_id
+            )
+            """,
+			parameters,
+		)
 
 
 def _normalize_terms(terms: list[str]) -> list[str]:

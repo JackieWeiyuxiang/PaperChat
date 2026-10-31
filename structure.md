@@ -71,7 +71,7 @@ arxiv_paper_recommend/
 | `common` | 资源所有权、上下文管理、基本输入校验 | 仅依赖标准库 |
 | `config` | 默认数据路径、构造时读取 LLM 配置 | 导入时不读取 `.env`、不创建客户端 |
 | `llm` | 共享结构化调用、按调用设置 reasoning、解析结果检查及客户端关闭 | 依赖 `common`、`config`；不包含业务提示词 |
-| `corpus` | 导入准备好的语料、构建 FTS5 和 FAISS 索引 | 不执行在线检索；采集清洗和向量归档流程尚未实现 |
+| `corpus` | 导入准备好的语料、分别构建标题／摘要单字段 FTS5 索引，以及 FAISS 索引 | 不执行在线检索；采集清洗和向量归档流程尚未实现 |
 | `vectorization` | 模型加载、批量编码、池化与归一化 | 不保存归档或构建索引 |
 | `retrieval.sparse / dense` | 召回和指定 ID 评分 | 不调用 LLM；查询类型和原始分数尺度由算法决定 |
 | `retrieval.hybrid` | 候选选择、重排和融合 | 通过稀疏／稠密组件公开接口协作；缓存仅限单次搜索 |
@@ -99,6 +99,10 @@ vectors.npz + documents.db ── IndexBuilder ──> documents.faiss
 ```
 
 构建器分别位于 `corpus.build_database`、`corpus.build_index`，不在包根导出。导入构建模块不会读取语料或写入数据。
+
+`documents.db` 保存论文表 `documents` 与两张外部内容 FTS5 索引：`documents_title_fts(title)`、`documents_abstract_fts(abstract)`。两张索引均以 `documents.id` 为 rowid，使用 `porter` 分词器，分别维护长度统计和 IDF。稀疏检索统一计算 `title_weight × 标题 BM25 + 摘要 BM25`，默认 `1:1`；搜索与补评分共用私有 SQL 构造逻辑，标题权重乘在标题最终分数上。搜索先合并全部匹配论文的分数，再排序和截取结果，同分按整数 ID 升序。
+
+数据库构建在单一事务内导入、重建两张索引并删除旧 `documents_fts`。旧数据库需显式构建升级；在线连接保持只读。仅重建 FTS 且论文内容、ID 不变时无需重建 FAISS。
 
 ```text
 研究请求 ── SearchEngine ── QueryGenerator ── terms / recall_queries / query
@@ -132,7 +136,7 @@ vectors.npz + documents.db ── IndexBuilder ──> documents.faiss
 
 ## 维护约定
 
-- 存储层 `documents.id`、FTS5 rowid、FAISS ID 与 `SearchResult.document_id` 对应；存储层 `doc_id` 映射为 `SearchResult.arxiv_id`，保留论文版本号。
+- 存储层 `documents.id`、两张 FTS5 索引的 rowid、FAISS ID 与 `SearchResult.document_id` 对应；存储层 `doc_id` 映射为 `SearchResult.arxiv_id`，保留论文版本号。
 - 仅关闭自建资源；注入组件由调用方管理。关闭幂等，关闭后的对象不能继续操作。
 - 包级导入为业务 API 推荐入口；检索根包延迟导出引擎，推荐根包延迟导出共同基类与基础生成器。导入 `SearchResult` 或统一推荐模型 `PaperRecommendation` 不加载 FAISS 或 LLM 客户端模块；`recommendation.innovation` 当前直接导出模型与生成器，会加载共享 LLM 模块。
 - PyTorch、Transformers 仅在实例化向量化器时导入。模型和索引跨查询复用。

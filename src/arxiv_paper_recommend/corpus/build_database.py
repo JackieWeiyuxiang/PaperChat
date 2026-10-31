@@ -1,4 +1,4 @@
-"""将论文 JSONL 导入 SQLite，并构建供 BM25 检索使用的 FTS5 索引。"""
+"""将论文 JSONL 导入 SQLite，并分别构建标题与摘要的 FTS5 索引。"""
 
 import json
 from argparse import ArgumentParser
@@ -70,16 +70,6 @@ class DatabaseBuilder:
                     abstract TEXT
                 )
             """)
-			conn.execute("""
-                CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts
-                USING fts5(
-                    title,
-                    abstract,
-                    doc_id UNINDEXED,
-                    content='documents',
-                    tokenize='porter'
-                )
-            """)
 			cursor = conn.executemany(
 				"""
                 INSERT INTO documents (doc_id, title, abstract)
@@ -91,7 +81,21 @@ class DatabaseBuilder:
 				self._read_documents(),
 			)
 			imported_count = cursor.rowcount
-			conn.execute("INSERT INTO documents_fts(documents_fts) VALUES ('rebuild')")
+			for field in ("title", "abstract"):
+				index_name = f"documents_{field}_fts"
+				conn.execute(f"""
+                    CREATE VIRTUAL TABLE IF NOT EXISTS {index_name}
+                    USING fts5(
+                        {field},
+                        content='documents',
+                        content_rowid='id',
+                        tokenize='porter'
+                    )
+                """)
+				conn.execute(
+					f"INSERT INTO {index_name}({index_name}) VALUES ('rebuild')"
+				)
+			conn.execute("DROP TABLE IF EXISTS documents_fts")
 		return imported_count
 
 

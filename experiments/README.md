@@ -4,6 +4,8 @@
 `data/example_queries.json`，缓存 LLM 生成的关键词和分面，预计算查询向量，并在
 10 条开发查询上选择覆盖权重，再对其余 30 条查询报告结果。
 
+当前保存在 `experiments/results/` 的结果来自旧版双字段 FTS5 BM25。2026-10-31 起，稀疏检索改为标题、摘要分别使用独立统计计算 BM25 后加权相加；BM25 及依赖它的混合检索排名可能变化，已有结果、延迟和覆盖权重选择不能作为新实现的评估结论。本次保留历史结果，未重新运行实验。重新执行以下命令会使用新实现并写入结果目录，复现旧结果需使用对应旧代码和索引。
+
 ```powershell
 uv sync --extra vectorization
 uv run python experiments/run_facet_coverage.py --env-file .env

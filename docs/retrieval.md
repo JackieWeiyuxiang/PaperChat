@@ -18,7 +18,7 @@ from arxiv_paper_recommend.retrieval.innovation import FacetCoverageRetriever
 from arxiv_paper_recommend.retrieval.query import QueryGenerator
 ```
 
-底层检索器不调用 LLM。稀疏检索需要数据库；稠密和混合检索还需要向量索引及 `vectorization` 可选依赖。`SearchEngine` 从自然语言生成检索输入，需要 LLM 配置。
+底层检索器不调用 LLM。稀疏检索需要数据库及支持 FTS5 的 SQLite >= 3.35；稠密和混合检索还需要向量索引及 `vectorization` 可选依赖。`SearchEngine` 从自然语言生成检索输入，需要 LLM 配置。
 
 `Retriever[QueryT]` 定义：
 
@@ -45,7 +45,7 @@ BM25 使用关键词列表，HNSW 使用单个字符串。评分按 ID 首次出
 
 BM25 越小越相关；内积、RRF 和语义加权 RRF 越大越相关，分数不能跨方法直接比较。归一化向量的内积对应余弦相似度。
 
-共享重排将不可评分结果放在末尾，同分按整数 ID 升序；基础 BM25 和 HNSW 召回保留 SQLite、FAISS 的返回顺序。多查询及混合检索创建新的结果对象，不改写底层返回对象。
+共享重排将不可评分结果放在末尾，同分按整数 ID 升序；BM25 召回同样以整数 ID 升序处理同分，基础 HNSW 召回保留 FAISS 的返回顺序。多查询及混合检索创建新的结果对象，不改写底层返回对象。
 
 结果不含作者、日期、来源 URL、推荐理由或独立引用证据。存储字段及映射见[论文与数据库格式](data.md#论文与数据库格式)。
 
@@ -59,13 +59,17 @@ search(query: list[str], limit=20)
 score(query: list[str], document_ids: list[int])
 ```
 
-连接以只读模式打开。关键词规范化空白并转为小写，按首次出现顺序去重，忽略空白项；处理后需有 1～20 项。每项必须含 FTS5 可索引字符，短语与双引号会正确转义，使用 OR 匹配。
+连接以只读模式打开，要求已有 `documents_title_fts` 和 `documents_abstract_fts` 单字段索引；旧数据库先按[数据构建说明](data.md#构建数据库)升级，检索时不修改索引。关键词规范化空白并转为小写，按首次出现顺序去重，忽略空白项；处理后需有 1～20 项。每项必须含 FTS5 可索引字符，短语与双引号会正确转义，使用 OR 匹配。
 
-`search` 要求正整数 `limit`，转义后的查询最多 1,347 字符，结果按原始 BM25 升序排列。`score` 不受搜索查询长度及结果数量限制，仍要求 1～20 个有效关键词；现存但不匹配的论文为 `0.0`，不存在的 ID 为 `None`。评分查询按 SQLite 参数上限分批执行。
+标题与摘要分别使用 `porter` 分词器和各自索引的字段长度、平均长度及 IDF 计算 BM25，再以 `1:1` 相加。保留 SQLite BM25 的负分方向，分数越小越相关；未匹配字段贡献 `0.0`。
+
+`search` 要求正整数 `limit`，转义后的查询最多 1,347 字符。候选为标题或摘要匹配的并集，通过物化 CTE 计算两侧分数，合并加总后按总分升序、整数 ID 升序排列，最后应用 `limit`；不会先对各字段单独截取候选。
+
+`score` 使用相同加总公式，不受搜索查询长度及结果数量限制，仍要求 1～20 个有效关键词；现存但不匹配的论文为 `0.0`，不存在的 ID 为 `None`。评分查询按 SQLite 参数上限分批执行，两路查询复用命名绑定参数。
 
 ### TitleWeightedBM25Retriever
 
-继承 BM25，沿用构造器，两个方法均增加仅限关键字参数 `title_weight: float | None = None`。省略或传入 `None` 时使用普通 BM25；显式权重仅影响本次调用，摘要权重固定为 `1.0`，论文 ID 不参与全文评分。
+继承 BM25，沿用构造器，两个方法均增加仅限关键字参数 `title_weight: float | None = None`。总分为 `title_weight × 标题 BM25 + 摘要 BM25`：权重乘在标题侧完成 BM25 计算后的最终分数上，不作为 `bm25()` 的列权重传入。省略或传入 `None` 等价于 `1.0`，与普通 BM25 完全相同；显式权重仅影响本次调用，摘要权重固定为 `1.0`，论文 ID 不参与全文评分。
 
 ```python
 from arxiv_paper_recommend.retrieval.sparse import TitleWeightedBM25Retriever
@@ -78,9 +82,9 @@ with TitleWeightedBM25Retriever() as retriever:
     )
 ```
 
-权重接受有限非负整数或浮点数，包括零；布尔值和其他类型报 `TypeError`，负数、非有限值或超出浮点范围的数值报 `ValueError`。搜索与补评分应传入同一权重。
+权重接受有限非负整数或浮点数，包括零；布尔值和其他类型报 `TypeError`，负数、非有限值或超出浮点范围的数值报 `ValueError`。权重为零时仍保留标题匹配候选，其标题贡献为零。搜索与补评分应传入同一权重。
 
-引擎的标题加权方法使用 `3:1`；该设置仍待评估，不能据此认定优于普通 BM25。
+引擎的标题加权方法默认使用 `1:1`，与普通 BM25 一致；上例中的 `3.0` 仅演示显式加权，不代表经过效果评估。混合检索的稀疏召回和补评分也使用同一字段加总公式。
 
 ## 稠密检索
 

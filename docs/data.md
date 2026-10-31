@@ -10,7 +10,7 @@
 | --- | --- |
 | [papers.jsonl](../data/raw/papers.jsonl) | 每行一个论文对象，含标识、标题、摘要、作者、分类、链接和 `text`（标题 + 完整摘要）等字段 |
 | [vectors.npz](../data/raw/vectors.npz) | `vectors`、`doc_ids`、`chunk_ids`、`metadata`；当前向量为 `(10000, 1024)`、`float32` |
-| [documents.db](../data/documents.db) | 论文表 `documents` 和全文索引 `documents_fts` |
+| [documents.db](../data/documents.db) | 论文表 `documents`，以及标题索引 `documents_title_fts`、摘要索引 `documents_abstract_fts` |
 | [documents.faiss](../data/documents.faiss) | 以数据库整数 ID 标识向量的 FAISS HNSW 内积索引 |
 | [example_queries.json](../data/example_queries.json) | 40 条中英文研究请求，覆盖十个主题；含 `question`、`query_en`、`scope`、`topic`、`query_type`，尚无人工相关性标注 |
 
@@ -60,12 +60,21 @@ JSONL 至少需要非空字符串 `doc_id` 和 `title`，摘要可为字符串�
 
 | documents 字段 | 类型与约束 | 含义 |
 | --- | --- | --- |
-| `id` | `INTEGER PRIMARY KEY` | 内部 ID，对应 FTS5 rowid 和 FAISS 向量 ID |
+| `id` | `INTEGER PRIMARY KEY` | 内部 ID，对应两张 FTS5 索引的 rowid 和 FAISS 向量 ID |
 | `doc_id` | `TEXT UNIQUE NOT NULL` | 仅移除 `arxiv:` 前缀，保留版本号 |
 | `title` | `TEXT NOT NULL` | 标题 |
 | `abstract` | `TEXT` | 可为空的摘要 |
 
-存储字段 `id`、`doc_id` 在读取为 `SearchResult` 时对应 `document_id`、`arxiv_id`；重构不改变现有数据库或归档格式。 `documents`，通过 `porter` 分词器索引标题和摘要，`doc_id` 不参与全文索引。
+存储字段 `id`、`doc_id` 在读取为 `SearchResult` 时对应 `document_id`、`arxiv_id`。论文表与向量归档格式保持不变；全文索引改为两张单字段 FTS5 表：
+
+| 索引 | 唯一索引字段 | 外部内容与 ID 映射 |
+| --- | --- | --- |
+| `documents_title_fts` | `title` | `content='documents'`，`content_rowid='id'` |
+| `documents_abstract_fts` | `abstract` | `content='documents'`，`content_rowid='id'` |
+
+两张索引均使用 `tokenize='porter'`，各自保存字段长度统计及词项文档频率，分别计算 BM25 的平均长度和 IDF。两张索引均包含所有论文；摘要为 `null` 或空字符串时保留对应行，但不产生摘要匹配贡献。论文 ID 不参与全文索引。
+
+总分为 `title_weight × 标题 BM25 + 摘要 BM25`，默认权重为 `1:1`；未匹配字段贡献为零，详见[检索 API](retrieval.md#稀疏检索)。
 
 ## 构建数据库
 
@@ -80,7 +89,9 @@ uv run python -m arxiv_paper_recommend.corpus.build_database
 | `--source` | `data/raw/papers.jsonl` |
 | `--database` | `data/documents.db` |
 
-重复运行会更新同一 `doc_id` 的标题与摘要，保留已有整数 ID，不删除源文件之外的旧记录。导入与全文索引重建在同一事务中完成，失败时回滚；重复论文 ID 或无效字段会报告源文件行号。
+重复运行会更新同一 `doc_id` 的标题与摘要，保留已有整数 ID，不删除源文件之外的旧记录。导入、两张单字段全文索引的重建及旧 `documents_fts` 的删除在同一事务中完成，失败时整体回滚；重复论文 ID 或无效字段会报告源文件行号。
+
+旧版双字段索引数据库也使用同一命令升级。2026-10-31 已更新仓库内 `data/documents.db` 的两张索引，保留 10,000 篇论文的原有内容与整数 ID，因此本次无需重建 FAISS。其他旧数据库须先显式运行构建命令，在线检索不会执行索引迁移。检索运行环境要求支持 FTS5 的 SQLite >= 3.35。
 
 Python 入口为 `corpus.build_database.DatabaseBuilder(source_path, database_path).build()`，返回导入记录数。
 
@@ -114,7 +125,7 @@ Python 入口为 `corpus.build_index.IndexBuilder(source_path, database_path, in
 
 ## 更新约定
 
-- 数据库、FTS5 和 FAISS 必须使用同一套整数 ID 映射；重新创建数据库可能改变映射，需同步重建向量索引。
+- 数据库、两张 FTS5 索引和 FAISS 必须使用同一套整数 ID 映射；保留论文内容与 ID 的 FTS 重建无需重建向量索引，重新创建数据库改变映射时则需同步重建向量索引。
 - 更新数据库不会自动生成论文向量；更新论文文本后，调用方负责重新编码并保存相应向量。
 - `Qwen3Vectorizer` 只返回向量。调用方负责保存向量与论文 ID 的对应关系，再显式重建索引。
 - 在线检索器复用加载时的索引；更新索引文件后，应创建新的检索器实例。

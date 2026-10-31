@@ -2,6 +2,22 @@
 
 本文记录不兼容变更。当前用法见[检索 API](retrieval.md)、[推荐生成](recommendation.md)和[数据与构建](data.md)。除明确列出的兼容名称外，旧名称不提供别名或转发模块。
 
+## 标题与摘要独立 BM25（2026-10-31）
+
+稀疏检索从双字段 `documents_fts` 改为单字段 `documents_title_fts` 与 `documents_abstract_fts`。两张表分别索引标题、摘要，沿用 `porter` 分词器和 `documents.id` 作为 rowid；字段长度统计与 IDF 分别计算。
+
+Python 构造器、`search()`、`score()` 和 `SearchResult` 结构不变，但分数及排名会变化。总分为 `title_weight × 标题 BM25 + 摘要 BM25`；标题权重乘在字段最终分数上，取代旧的 `bm25(documents_fts, title_weight, 1.0)` 列权重。普通 BM25 和 `title_weight=None` 均为 `1:1`，引擎的 `TITLE_WEIGHTED_BM25` 默认也为 `1:1`。候选仍为任一字段匹配的并集，结果按总分升序、整数 ID 升序排列。
+
+旧数据库必须先运行现有构建命令升级，检索器不会自动迁移：
+
+```powershell
+uv run python -m arxiv_paper_recommend.corpus.build_database
+```
+
+导入、两张索引的重建及旧索引删除在同一事务中完成。已有 `doc_id` 的整数 ID 保留，不删除源文件之外的论文。仓库内 `data/documents.db` 已完成本次迁移，论文内容及全部 ID 映射保持不变，因此无需重建 FAISS；论文表和向量归档格式未变。评分使用物化 CTE，运行环境要求支持 FTS5 的 SQLite >= 3.35。
+
+已保存的检索代理实验结果对应旧 BM25 实现，不能作为新公式的效果或延迟结论。本次保留历史结果，不重新执行实验。
+
 ## 两阶段推荐与统一结果（2026-10-31）
 
 两种推荐生成器共同实现 `BaseRecommendationGenerator`，公开 `generate(request, papers, limit=10)` 调用方式不变，统一返回 `list[PaperRecommendation]`：
@@ -56,7 +72,7 @@ with MultiQueryHNSWRetriever() as retriever:
 
 推荐入口统一为 `from arxiv_paper_recommend.recommendation import PaperRecommendation, RecommendationGenerator`。只导入推荐模型不会加载 LLM 客户端模块。`QueryGenerator` 现在与推荐生成器一样支持 `model` 和 `client` 注入。
 
-数据库、JSONL、NPZ 的字段不变：存储的 `id`、`doc_id` 映射到 Python 结果的 `document_id`、`arxiv_id`。现有数据库和向量索引无需重建。检索算法、默认参数、分数尺度及查询生成调用次数保持不变。
+本节结构与命名调整未改变数据库论文表、JSONL、NPZ 的字段：存储的 `id`、`doc_id` 映射到 Python 结果的 `document_id`、`arxiv_id`；该调整本身未要求重建数据库或向量索引，也未改变检索算法、默认参数、分数尺度或查询生成调用次数。后续的全文索引结构与评分变更需另按本文开头的“标题与摘要独立 BM25”升级说明处理。
 
 查询生成拒绝空白项。当前推荐流程检查全部初筛理由及引用，再校验集中排序结果的候选归属、去重与准确数量；不会通过截断响应跳过错误项。
 

@@ -1,4 +1,4 @@
-"""BM25 retrieval with a per-call title weight and unit abstract weight."""
+"""Sum independent field BM25 scores with a per-call title multiplier."""
 
 from math import isfinite
 
@@ -8,7 +8,7 @@ from .bm25 import BM25Retriever
 
 
 class TitleWeightedBM25Retriever(BM25Retriever):
-	"""Use the same weighted FTS5 BM25 for search and candidate scoring."""
+	"""Weight the final title BM25 score equally in search and candidate scoring."""
 
 	def search(
 		self,
@@ -17,7 +17,7 @@ class TitleWeightedBM25Retriever(BM25Retriever):
 		*,
 		title_weight: float | None = None,
 	) -> list[SearchResult]:
-		"""Apply a title weight for this search, or use ordinary BM25 when omitted."""
+		"""Scale the final title score; None uses unit weights for both fields."""
 		if title_weight is None:
 			return super().search(query, limit=limit)
 		self._ensure_open()
