@@ -30,19 +30,28 @@ def rank_percentiles(
 	*,
 	descending: bool = False,
 ) -> dict[int, float]:
-	"""Rank available scores using the full pool size; unavailable scores get zero."""
+	"""Use average ranks for ties and the full pool size; missing scores get zero."""
 	candidate_count = len(document_ids)
 	scored_ids = [
 		document_id
 		for document_id in document_ids
 		if scores.get(document_id) is not None
 	]
-	percentiles = {
-		document_id: (candidate_count - rank + 1) / candidate_count
-		for rank, document_id in enumerate(
-			rank_ids(scored_ids, scores, descending=descending), start=1
-		)
-	}
+	ranked_ids = rank_ids(scored_ids, scores, descending=descending)
+	percentiles: dict[int, float] = {}
+	start = 0
+	while start < len(ranked_ids):
+		end = start + 1
+		while (
+			end < len(ranked_ids)
+			and scores[ranked_ids[end]] == scores[ranked_ids[start]]
+		):
+			end += 1
+		average_rank = (start + 1 + end) / 2
+		percentile = (candidate_count - average_rank + 1) / candidate_count
+		for document_id in ranked_ids[start:end]:
+			percentiles[document_id] = percentile
+		start = end
 	return {
 		document_id: percentiles.get(document_id, 0.0) for document_id in document_ids
 	}

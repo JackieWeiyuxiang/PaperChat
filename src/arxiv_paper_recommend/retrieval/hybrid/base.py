@@ -23,7 +23,7 @@ class HybridRetriever(ManagedResource, ABC):
 	"""Define hybrid search, own defaults, and borrow injected retrievers.
 
 	Hybrid strategies have no standalone candidate-scoring interface.
-	Dense components use public search, score, raw_recall, and raw_score methods.
+	Dense components use public search, score, and raw_score_many methods.
 	Components handle None options by falling back to their base implementations.
 	"""
 
@@ -91,5 +91,5 @@ class HybridRetriever(ManagedResource, ABC):
 			query, limit=limit, recall_queries=recall_queries
 		)
 		candidates = {result.document_id: result for result in results}
-		# Search returns FC scores; raw_score() supplies unfused inner products.
+		# Search returns FC scores; raw_score_many() supplies unfused inner products.
 		return candidates, DenseScoreCache(self.dense_retriever)

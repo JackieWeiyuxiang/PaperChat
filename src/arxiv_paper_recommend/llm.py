@@ -9,6 +9,7 @@ from openai import APIResponseValidationError, OpenAI, OpenAIError, omit
 from pydantic import BaseModel, ValidationError
 
 from .common.lifecycle import ManagedResource
+from .common.validation import validate_integer
 from .config import LLMSettings
 
 MAX_LLM_RETRIES = 3
@@ -45,13 +46,15 @@ class StructuredGenerator(ManagedResource):
 		result_model: type[Result],
 		*,
 		reasoning_effort: Literal["none", "high"] = "none",
+		max_retries: int = MAX_LLM_RETRIES,
 		result_validator: Callable[[Result], Result] | None = None,
 	) -> Result:
 		"""Share one retry budget across API, parsing, and result validation failures."""
 		self._ensure_open()
+		validate_integer(max_retries, "LLM retry limit", minimum=0)
 		client = self.client.with_options(max_retries=0)
 		current_instructions = instructions
-		for attempt in range(MAX_LLM_RETRIES + 1):
+		for attempt in range(max_retries + 1):
 			try:
 				response = client.responses.parse(
 					model=self.model,
@@ -66,12 +69,12 @@ class StructuredGenerator(ManagedResource):
 				JSONDecodeError,
 				APIResponseValidationError,
 			) as exc:
-				if attempt == MAX_LLM_RETRIES:
+				if attempt == max_retries:
 					raise
 				current_instructions = self._validation_instructions(instructions, exc)
 				continue
 			except OpenAIError:
-				if attempt == MAX_LLM_RETRIES:
+				if attempt == max_retries:
 					raise
 				time.sleep(2**attempt)
 				continue
@@ -82,7 +85,7 @@ class StructuredGenerator(ManagedResource):
 					raise RuntimeError("Generation did not return a structured result.")
 				return parsed if result_validator is None else result_validator(parsed)
 			except (ValidationError, RuntimeError) as exc:
-				if attempt == MAX_LLM_RETRIES:
+				if attempt == max_retries:
 					raise
 				current_instructions = self._validation_instructions(instructions, exc)
 

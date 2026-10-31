@@ -1,11 +1,12 @@
 """Shared two-stage recommendation generation with marked source citations."""
 
 import json
-import re
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
+from json import JSONDecodeError
 
-from pydantic import BaseModel, ConfigDict, Field
+from openai import OpenAIError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from arxiv_paper_recommend.common.validation import validate_integer, validate_text
 from arxiv_paper_recommend.llm import StructuredGenerator
@@ -16,9 +17,6 @@ from .models import PaperRecommendation
 MAX_RECOMMENDATIONS = 10
 MAX_GENERATION_CANDIDATES = 30
 MAX_SCREENING_WORKERS = 5
-
-# Recognize incomplete markers too, so malformed prefixes cannot evade validation.
-_CITATION_MARKER = re.compile(r"\[\[/?cite(?:\]\])?")
 
 
 class _PaperAssessment(BaseModel):
@@ -93,20 +91,34 @@ class BaseRecommendationGenerator(StructuredGenerator, ABC):
 		for paper in papers[:MAX_GENERATION_CANDIDATES]:
 			papers_by_doc_id.setdefault(paper.arxiv_id, paper)
 		candidates = list(papers_by_doc_id.values())
+		approved: dict[str, tuple[SearchResult, str]] = {}
 		with ThreadPoolExecutor(max_workers=MAX_SCREENING_WORKERS) as executor:
 			pending = [
 				executor.submit(self._assess_paper, request, paper)
 				for paper in candidates
 			]
-			assessments = [future.result() for future in pending]
+			for paper, future in zip(candidates, pending, strict=True):
+				try:
+					assessment = future.result()
+				except (
+					OpenAIError,
+					ValidationError,
+					JSONDecodeError,
+					RuntimeError,
+				) as exc:
+					print(
+						f"Paper assessment failed for {paper.arxiv_id}: "
+						f"{type(exc).__name__}: {exc}"
+					)
+					continue
+				if assessment.recommended:
+					approved[paper.arxiv_id] = (paper, assessment.reason)
 
-		approved = {
-			paper.arxiv_id: (paper, assessment.reason)
-			for paper, assessment in zip(candidates, assessments, strict=True)
-			if assessment.recommended
-		}
 		if not approved:
 			return []
+		if len(approved) == 1:
+			paper, reason = next(iter(approved.values()))
+			return [PaperRecommendation(rank=1, paper=paper, reason=reason)]
 
 		target = min(limit, len(approved))
 		payload = {
@@ -180,32 +192,10 @@ class BaseRecommendationGenerator(StructuredGenerator, ABC):
 
 	@staticmethod
 	def _validate_reason(reason: str, paper: SearchResult) -> str:
-		"""Require one or two paired, non-nested citations matching source text."""
+		"""Require a nonblank reason without inspecting its citation markers."""
 		reason = reason.strip()
 		if not reason:
 			raise RuntimeError(
 				f"Generation returned an empty reason for paper {paper.arxiv_id!r}."
 			)
-		markers = list(_CITATION_MARKER.finditer(reason))
-		if len(markers) not in (2, 4):
-			raise RuntimeError(
-				f"Generation must return one or two paired citations for paper {paper.arxiv_id!r}."
-			)
-		for opening, closing in zip(markers[::2], markers[1::2], strict=True):
-			if opening.group() != "[[cite]]" or closing.group() != "[[/cite]]":
-				raise RuntimeError(
-					f"Generation returned malformed citation markers for paper {paper.arxiv_id!r}."
-				)
-			evidence = reason[opening.end() : closing.start()]
-			if not evidence.strip():
-				raise RuntimeError(
-					f"Generation returned empty citation text for paper {paper.arxiv_id!r}."
-				)
-			if evidence not in (paper.title or "") and evidence not in (
-				paper.abstract or ""
-			):
-				raise RuntimeError(
-					"Generation returned a citation that is not an exact title or abstract "
-					f"span for paper {paper.arxiv_id!r}."
-				)
 		return reason

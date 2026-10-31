@@ -1,5 +1,5 @@
 """LLM generation of retrieval inputs."""
 
-from .generator import QueryGenerator
+from .generator import QueryGenerator, RetrievalInputs
 
-__all__ = ["QueryGenerator"]
+__all__ = ["QueryGenerator", "RetrievalInputs"]

@@ -54,7 +54,7 @@ arxiv_paper_recommend/
     │       ├── hprf.py            # 分层排名百分位加权混合检索
     │       └── _facet_coverage.py # 独立 FC-HNSW 原始覆盖分数
     ├── recommendation/
-    │   ├── base.py                # 共同接口、逐篇并发判断、引用校验与集中排序
+    │   ├── base.py                # 共同接口、逐篇并发判断与容错、理由校验与排序
     │   ├── models.py              # 两种实现共用的推荐结果
     │   ├── generation/generator.py # 基于完整标题和摘要的判断提示词
     │   ├── citations/             # 规划占位
@@ -72,17 +72,17 @@ arxiv_paper_recommend/
 | --- | --- | --- |
 | `common` | 资源所有权、上下文管理、基本输入与有限权重校验 | 仅依赖标准库 |
 | `config` | 默认数据路径、构造时读取 LLM 配置 | 导入时不读取 `.env`、不创建客户端 |
-| `llm` | 共享结构化调用、按调用设置 reasoning、统一网络/API、解析与业务校验回调的重试预算（最多重试 3 次、共 4 次请求）、错误反馈与客户端关闭 | 依赖 `common`、`config`；关闭 SDK 重试，不包含业务提示词 |
+| `llm` | 共享结构化调用、按调用设置 reasoning 与重试上限、统一网络/API、解析与业务校验预算、错误反馈与客户端关闭 | 默认最多重试 3 次、共 4 次请求，统一查询生成覆盖为 5 次重试；依赖 `common`、`config`，关闭 SDK 重试，不包含业务提示词 |
 | `pipeline` | 校验研究需求与数量，串联 SD Cascade 检索和证据生成，返回 JSON 可序列化字典 | 通过 `SearchEngine` 和 `EvidenceGroundedRecommendationGenerator` 公开接口编排；延迟创建、复用并仅关闭自建组件，不实现排名或引用校验 |
 | `corpus` | 导入准备好的语料、分别构建标题／摘要单字段 FTS5 索引，以及 FAISS 索引 | 不执行在线检索；采集清洗和向量归档流程尚未实现 |
 | `vectorization` | 模型加载、批量编码、池化与归一化 | 不保存归档或构建索引 |
 | `retrieval.sparse / dense` | 召回和指定 ID 评分 | 不调用 LLM；查询类型和原始分数尺度由算法决定 |
-| `retrieval.hybrid` | 共享混合检索基类及 HRRF、SemanticRRF、SD Cascade 的候选选择、重排和融合，默认 dense 为 FC-HNSW | 通过稀疏／稠密组件公开接口协作；SD Cascade 使用 dense `score()`，原始内积通过 `raw_score()` 获取，缓存仅限单次搜索 |
+| `retrieval.hybrid` | 共享混合检索基类及 HRRF、SemanticRRF、SD Cascade 的候选选择、重排和融合，默认 dense 为 FC-HNSW | 通过稀疏／稠密组件公开接口协作；SD Cascade 使用 dense `score()`，原始内积通过 `raw_score_many()` 批量获取，缓存仅限单次搜索 |
 | `retrieval.innovation` | 独立 FC-HNSW、原始覆盖评分及 HPRF 分层百分位混合检索 | FC-HNSW 继承多查询 HNSW，其原始覆盖评分不依赖 hybrid；HPRF 继承 HybridRetriever，包级延迟导出避免循环依赖 |
-| `retrieval.query` | 从研究请求生成关键词及语义查询 | 依赖共享 LLM 层，不执行检索或向量化 |
+| `retrieval.query` | 一次结构化生成 `RetrievalInputs`（关键词、分面与主查询），保留独立生成方法 | 统一调用使用 thinking=high、最多重试 5 次；独立方法沿用 thinking=none、最多重试 3 次；不执行检索或向量化 |
 | `retrieval.search_engine` | 注册方法、生成输入、延迟创建和复用组件 | 不承担算法内部排名逻辑 |
-| `recommendation.models` | 统一推荐记录及原始检索结果关联，理由内含引用标记 | 不依赖 LLM 模块 |
-| `recommendation.base` | 共同抽象接口、前 30 条去重、最多 5 个并发逐篇判断、精确引用与排序校验回调、集中筛选排序 | 依赖共享 LLM 层的统一重试预算及公开检索结果模型，不实现额外重试；逐篇判断关闭 thinking 并设置 temperature=0，集中排序使用 thinking=high，不访问检索内部工具 |
+| `recommendation.models` | 统一推荐记录及原始检索结果关联，理由保留模型生成的引用标记 | 不依赖 LLM 模块 |
+| `recommendation.base` | 前 30 条去重、最多 5 个并发逐篇判断、理由非空与排序校验、单篇失败打印并跳过、仅一篇通过时直接返回 | 复用共享 LLM 默认重试预算，不实现额外重试；逐篇判断 thinking=none、temperature=0，至少两篇通过时集中排序使用 thinking=high；不校验引用或访问检索内部工具 |
 | `recommendation.generation` | 基于完整标题和摘要解释相关性的判断提示词 | 实现共同基类，统一返回 `PaperRecommendation` |
 | `recommendation.innovation.models` | `EvidenceGroundedRecommendation` 作为统一结果模型的别名 | 模型定义不依赖 LLM；经 `innovation` 包导入时会同时加载生成器 |
 | `recommendation.innovation.evidence_generator` | 要求理由具体主张仅由标注原文支持的判断提示词 | 实现共同基类，复用相同的流程与校验；不自动验证语义支持性 |
@@ -92,7 +92,21 @@ arxiv_paper_recommend/
 
 `Retriever` 统一稀疏／稠密的搜索与评分契约；`HNSWRetriever.raw_score()` 提供指定 ID 的精确内积，`MultiQueryHNSWRetriever.raw_recall()` 提供完整多查询召回并集及主查询精确分数。原 HNSW 的 `score()`、多查询 HNSW 的 `recall()` 分别委托这两个原始入口，多查询 `search()` 每分面召回 `ceil(limit * sqrt(m))` 篇后按请求数量截取并使用原始内积，`m` 为去重后的分面数。`FCHNSWRetriever.search()`、`score()`、`recall()` 统一使用主查询原始内积与分面非负内积几何平均的加权分数，分数不依赖候选集合；`recall()` 保留完整并集，`search()` 默认每分面深度同为 `ceil(limit * sqrt(m))`，显式 `candidate_limit` 直接覆盖深度，独立 dense 无 100 条上限。`recall()`、`raw_recall()` 的 `limit` 直接表示每分面深度，不再次缩放。`HybridRetriever` 独立定义混合搜索，不提供单独评分接口。共享限值位于 `retrieval.constants`，混合算法专用预算位于 `retrieval.hybrid.constants`，排序、排名百分位与 RRF 位于 `_ranking`，原始评分缓存位于 `_scoring`，FC-HNSW 原始覆盖评分位于 `innovation._facet_coverage`，权重校验位于 `common.validation`，缓存仅限单次调用。
 
-`SearchEngine.search()` 默认 `method="FC_HNSW"`，生成分面查询和主查询；默认 dense 组件也供混合检索复用。显式 `HNSW`、`MULTI_QUERY_HNSW` 在共享组件上分别调用原类的搜索实现，保留原算法；注入组件继续覆盖默认组件，资源由调用方管理。HPRF 沿用 HRRF 每路最多 `limit` 篇的候选预算，在各路内部以 BM25 与主查询原始内积的百分位加权重排，再对两路新排名的百分位加权。HRRF 对应的三处融合使用加权 RRF。两者的引擎和底层搜索均接受三个默认 `0.5` 的权重：`sparse_semantic_weight`、`dense_semantic_weight`、`fusion_weight`；HRRF 默认排序不变，最终分数为此前等权相加版本的一半。其他引擎方法忽略这些权重，自定义处理器沿用原有签名。
+`HNSWRetriever.raw_score_many()` 对去重查询统一编码、归一化，只重建一批候选向量，
+通过 `D @ Q.T` 计算全部原始内积；`raw_score()` 委托单查询批量入口。
+多查询与 FC 召回共用内部候选准备及矩阵评分，召回和评分复用同批查询向量。
+`DenseScoreCache.ensure()` 批量补齐缺失查询／ID 对，不覆盖已有值，缓存仅限单次调用。
+
+`SearchEngine.search()` 默认 `method="FC_HNSW"`。多查询稠密与全部混合路径通过一次
+`QueryGenerator.generate()` 生成关键词、分面查询和主查询；稠密路径只消费查询字段，
+关键词上限使用默认值，继续忽略引擎的 `max_terms`。BM25、标题加权 BM25 和单查询 HNSW
+继续使用独立生成方法。默认 dense 组件也供混合检索复用。显式 `HNSW`、`MULTI_QUERY_HNSW`
+在共享组件上分别调用原类搜索，保留原算法；注入组件继续覆盖默认组件，资源由调用方管理。
+HPRF 沿用 HRRF 每路最多 `limit` 篇的候选预算，在各路内部以 BM25 与主查询原始内积的
+百分位加权重排，再对两路新排名的百分位加权；所有百分位转换对并列分数使用平均名次，
+缺失信号仍为零，最终同分按 ID 排列。HRRF 对应的三处融合使用加权 RRF。两者均接受
+三个默认 `0.5` 的权重：`sparse_semantic_weight`、`dense_semantic_weight`、`fusion_weight`；
+HRRF 默认排序不变，最终分数为此前等权相加版本的一半。其他引擎方法忽略这些权重，自定义处理器沿用原有签名。
 
 SD Cascade 先按 `max(1, ceil(sqrt(limit × N)))` 的预算执行 BM25 召回，`N` 为稀疏检索器的数据库文档总量；再对全部去重候选调用 dense `score()`，排除不可评分项，按分数降序、文档 ID 升序返回前 `limit` 篇。默认 FC-HNSW 接收分面查询并计算 FC 分数；注入原 HNSW 或多查询 HNSW 时使用主查询原始内积。空分面序列仅按主查询原始内积评分，不执行全库稠密召回。
 
@@ -116,13 +130,17 @@ vectors.npz + documents.db ── IndexBuilder ──> documents.faiss
 ```text
 研究请求 ── PaperRecommender（先校验全部参数）
               ├── SearchEngine.search(method="SD_CASCADE", limit=candidate_limit)
-              │      └── 查询生成 → BM25 召回 → 默认 FC 分数重排
+              │      └── 一次统一查询生成（thinking=high）→ BM25 召回 → 批量 FC 评分重排
               ├── EvidenceGroundedRecommendationGenerator.generate(limit=limit)
-              │      └── 逐篇判断与引用校验 → 集中筛选排序
+              │      └── 逐篇判断与容错 → 单篇直接返回／多篇集中筛选排序
               └── dict：request + recommendations（rank / paper / reason）
 ```
 
-统一入口默认最多向生成阶段提供 30 篇检索结果、返回最多 10 篇推荐，数量参数分别允许 1～30 与 1～10。检索为空时跳过推荐生成器的创建；初筛全部不推荐时同样返回空推荐列表。输出转换为普通字典及列表，保留论文信息、检索分数和理由中的引用标记；异常沿用底层行为直接传播。详细参数与使用示例见 [README](README.md#统一全流程接口)。
+统一入口默认最多向生成阶段提供 30 篇检索结果、返回最多 10 篇推荐，数量参数分别允许 1～30 与 1～10。
+检索为空时跳过推荐生成器创建；初筛没有成功推荐项时返回空列表，仅一篇通过时直接设为第 1 名。
+单篇评估重试耗尽后打印 arXiv ID、异常类型与错误，按不推荐处理并继续其他候选。
+输出转换为普通字典及列表，保留论文信息、检索分数和模型生成的引用标记；输入、资源初始化、
+检索／查询生成及集中排序异常继续传播。详细参数与示例见 [README](README.md#统一全流程接口)。
 
 底层检索与生成接口仍可分别调用：
 
@@ -146,14 +164,18 @@ vectors.npz + documents.db ── IndexBuilder ──> documents.faiss
                              ↓
                     逐篇判断（最多并发 5 个，thinking=none，temperature=0）
                              ↓
-                    bool + reason（内含 1～2 处引用并校验原文）
+                    bool + reason（提示词要求 1～2 处引用，仅校验结构与理由非空）
                              ↓
-                    仅初筛推荐项 ── 一次集中筛选排序（thinking=high）
+                    成功初筛推荐项 ── 仅一篇直接返回，至少两篇集中排序（thinking=high）
                              ↓
                     list[PaperRecommendation]，数量 min(limit, 初筛推荐数)
 ```
 
-调用方可自行衔接下游生成，也可使用统一入口自动衔接 SD Cascade 与证据生成。两种生成器均返回统一推荐记录，`reason` 使用 `[[cite]]原文片段[[/cite]]` 标注 1～2 处标题或摘要中的精确连续原文。初筛推荐数为 0 时跳过排序；否则第二阶段只返回有序 ID，理由沿用初筛结果。精确匹配不保证理由在语义上被证据支持，当前结果均不补充作者、日期、URL 或完整引用元数据。
+调用方可自行衔接下游生成，也可使用统一入口自动衔接 SD Cascade 与证据生成。
+两种生成器均返回统一推荐记录，提示词继续要求 `reason` 使用 `[[cite]]原文片段[[/cite]]`
+标注 1～2 处标题或摘要的连续原文；程序不校验引用标记、数量、引用内容非空或原文匹配。
+初筛推荐数为 0 时返回空列表，为 1 时直接返回该篇；至少两篇时第二阶段只返回有序 ID，
+理由沿用初筛结果。引用格式、原文对应关系及语义支持性需另行评估，当前不补充作者、日期、URL 或完整引用元数据。
 
 [历史检索实验材料](experiments/README.md)保留 BM25、HNSW、HRRF 与旧 FC-HRRF 的输入、结果和报告，位于 `experiments/results/`；旧实验脚本已删除，当前没有 HPRF 专用检索实验入口。历史材料属于旧版算法，不能作为 HPRF 的效果或延迟结论；主题代理标签仅用于主题级比较，不能替代人工相关性评估。
 

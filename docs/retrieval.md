@@ -98,6 +98,8 @@ HNSWRetriever(index_path=INDEX_PATH, database_path=DATABASE_PATH, *, vectorizer=
 search(query: str, limit=20)
 score(query: str, document_ids: list[int])
 raw_score(query: str, document_ids: list[int])
+raw_score_many(queries: Sequence[str], document_ids: list[int])
+    -> dict[str, dict[int, float | None]]
 ```
 
 加载 FAISS 索引并打开只读数据库连接，向量化器在首次需要编码时创建；可注入复用实例。查询必须为非空白字符串，`limit` 为正整数，最多召回索引中的向量数；空索引返回空列表。
@@ -106,6 +108,11 @@ raw_score(query: str, document_ids: list[int])
 `score()` 实现自身公式，`raw_score()` 仍提供原始内积。评分要求内积度量的 `IndexIDMap2`，
 只重建同时存在于索引和数据库的向量，其余 ID 为 `None`；无可用 ID 时不编码查询。
 查询向量需与索引维度一致，归一化前复制，避免改写注入向量化器的输出。
+
+`raw_score()` 委托批量入口 `raw_score_many()`。后者按首次出现顺序去重查询和文档 ID，
+一次批量编码并归一化所有查询，只重建一批有效候选向量，通过 `D @ Q.T` 计算全部内积。
+每条查询的结果仍包含全部请求 ID，缺失 ID 为 `None`；空查询序列返回 `{}`，
+无可评分 ID 时不编码查询。`score()` 与 FC 子类的公式不改变这一原始内积入口。
 
 索引在实例生命周期内应保持不变；更新文件后重新创建检索器。
 
@@ -125,15 +132,17 @@ raw_recall(query: str, limit=20, *, recall_queries: Sequence[str] | None = None)
 - 非空序列：令 `m` 为去重后的分面数，每条查询最多召回 `ceil(limit * sqrt(m))` 篇，合并并去重后按主查询 `query` 精确评分，返回前 `limit` 篇。实际召回深度不超过索引文档数。
 - 空序列：返回空列表，不回退主查询。
 
-多查询在类内批量编码和召回；无有效候选时直接返回空列表。最终分数为主查询精确内积。
+主查询与召回查询在类内去重后统一编码，召回和精确评分复用同批查询向量；
+候选向量统一重建后通过矩阵内积评分。无有效候选时直接返回空列表，最终分数为主查询精确内积。
 
 `recall()` 使用相同的输入校验、批量召回和去重逻辑，但返回完整召回并集，不将合并结果
 截取为 `limit` 篇。这里的 `limit` 仅限制每条召回查询的邻居数量；所有候选按主查询的
 精确内积降序、文档 ID 升序返回，分数为主查询精确内积。`recall_queries=None` 使用
 主查询作为唯一召回查询，显式空序列仍返回空列表。`recall()` 与 `raw_recall()` 的
 `limit` 是显式的每分面深度，不额外乘以分面数的平方根。
-`recall()` 委托 `raw_recall()`，底层多查询召回使用 `raw_score()`，使显式调用原类搜索
-实现时仍获得原始内积。`raw_recall()` 也供 FC 子类及混合检索获取完整原始召回并集。
+`recall()` 委托 `raw_recall()`，底层复用共享的候选准备与原始矩阵评分逻辑，使显式调用原类搜索
+实现时仍获得原始内积。FC 召回复用同一候选准备逻辑，同时计算所有所需分面与主查询的内积，
+不再先执行原始召回评分后逐分面重复编码、重建向量。`raw_recall()` 仍可独立获取完整原始召回并集。
 
 ### FCHNSWRetriever（默认 dense）
 
@@ -213,7 +222,7 @@ search(
 
 HRRF、HPRF、SemanticRRF 默认用 FC-HNSW 的 `search()` 选择 dense 候选，每分面深度为
 `ceil(limit * sqrt(m))`（`m` 为去重后的分面数），保留 `limit` 篇；后续按各自算法重排及融合。原始内积统一通过
-`raw_score()` 获取并在单次搜索内缓存，不把 FC 分数用作内积。显式注入组件覆盖默认实现，
+`raw_score_many()` 批量获取并在单次搜索内缓存，不把 FC 分数用作内积。显式注入组件覆盖默认实现，
 因此默认组件和分面预算调整均可能改变混合检索候选；旧实验采用当时的多查询实现与预算。
 
 `query` 用于语义评分；`recall_queries` 指定稠密召回查询或 SD Cascade 的 FC 评分分面，校验与多查询 HNSW 一致。`None` 使用主查询；空序列下 HRRF、HPRF、SemanticRRF 仅保留稀疏候选，SD Cascade 使用主查询原始内积重排稀疏候选。所有方法候选不足时返回较少结果。
@@ -289,7 +298,7 @@ dense_semantic_weight: float = 0.5   # 稠密候选内部的语义占比
 fusion_weight: float = 0.5           # 最终稠密路的占比
 ```
 
-对当前候选集合，`N` 为实际候选数，`rank` 为一基名次；`P_BM25`、`P_query` 分别为
+对当前候选集合，`N` 为实际候选数，`rank` 为一基名次，并列分数取所占名次的平均值；`P_BM25`、`P_query` 分别为
 该集合内的 BM25、主查询原始内积百分位：
 
 ```text
@@ -305,7 +314,9 @@ score(d) = (1 - fusion_weight) * P_sparse_reranked(d)
 最终使用两路重排后的排名百分位，不直接融合 `sparse_score` 和 `dense_score`。
 每次百分位转换均使用所在候选路的实际大小，不用并集大小。缺失原始评分 `None` 的信号
 百分位为零，BM25 的 `0.0` 是有效评分；路内融合分数即使为零，仍参与该路的新排名。
-最终缺席某路的文档在该路贡献为零，交集文档获得两路贡献，各阶段同分按文档 ID 升序。
+最终缺席某路的文档在该路贡献为零，交集文档获得两路贡献。原始分数和路内融合分数的
+每次百分位转换均使用平均名次，并列分数按精确相等分组；同分文档获得相同百分位，
+最终展示和截断仍按文档 ID 升序。例如降序分数 `[3, 3, 1]` 的百分位为 `[5/6, 5/6, 1/3]`。
 
 权重独立接受 `[0, 1]` 内有限整数或浮点数，拒绝布尔值、其他类型及非有限值。
 权重为 `0` 或 `1` 时仍保留两路召回及补评分，只改变评分贡献；当某路贡献为零时，
@@ -314,7 +325,7 @@ score(d) = (1 - fusion_weight) * P_sparse_reranked(d)
 评分并参与分层融合。候选预算沿用 HRRF，不接受 `candidate_limit`。
 
 默认 dense 组件仍为 FC-HNSW，负责选择稠密候选；HPRF 内部的语义排名使用
-`raw_score()` 的主查询原始内积，原始评分通过单次搜索内的缓存复用。
+`raw_score_many()` 的主查询原始内积，原始评分通过单次搜索内的缓存复用。
 此方法替代旧 `FacetCoverageRetriever` 与 `FACET_COVERAGE` 引擎入口，不保留旧名称。
 独立 FC-HNSW 和 HRRF 保留；HPRF 及 HRRF 的新权重配置尚未进行效果或性能评估。
 
@@ -341,14 +352,21 @@ search(
 | `BM25` | max_terms：5～20 | 正整数 | 1 次关键词生成 |
 | `TITLE_WEIGHTED_BM25` | max_terms：5～20 | 正整数 | 1 次关键词生成 |
 | `HNSW` | 无 | 正整数 | 1 次主查询生成 |
-| `MULTI_QUERY_HNSW` | max_queries：正整数 | 正整数 | 召回查询、主查询各 1 次 |
-| `FC_HNSW`（默认） | max_queries：正整数 | 正整数 | 分面查询、主查询各 1 次 |
-| `HRRF` | max_terms：5～20；max_queries：正整数 | 1～100 | 关键词、召回查询、主查询各 1 次 |
+| `MULTI_QUERY_HNSW` | max_queries：正整数 | 正整数 | 1 次统一生成，仅使用分面与主查询 |
+| `FC_HNSW`（默认） | max_queries：正整数 | 正整数 | 1 次统一生成，仅使用分面与主查询 |
+| `HRRF` | max_terms：5～20；max_queries：正整数 | 1～100 | 1 次统一生成关键词、分面与主查询 |
 | `SEMANTIC_RRF` | 同上 | 1～100 | 同上 |
 | `SD_CASCADE` | 同上 | 1～100 | 同上 |
 | `HPRF` | 同上 | 1～100 | 同上 |
 
-上表为正常情况下的逻辑调用次数。关键词、召回／分面查询和主查询生成各自最多重试 3 次，含首次最多请求 4 次；网络/API 异常、结构解析、缺少结构化结果及空白项校验失败共用各自的预算，SDK 内置重试已关闭。因此计入重试后的 API 请求总数最多为表中逻辑调用次数的 4 倍。多查询和混合路径在检索前完成上述生成，空召回不减少调用次数。方法名去掉首尾空白后转为大写；未知方法、空白请求及当前方法使用的无效数量参数在调用 LLM 前报错。数量参数拒绝布尔值和非整数，未使用的参数不参与校验。数据库、模型和最终生成异常直接传播。
+上表为正常情况下的逻辑调用次数。多查询稠密与全部混合路径使用一次统一结构化生成，
+开启 `thinking=high`，最多重试 5 次，含首次最多请求 6 次。BM25、标题加权 BM25 和单查询
+HNSW 保留专用调用，关闭 thinking、设置 `temperature=0`，最多重试 3 次，含首次最多请求 4 次。
+每次逻辑调用的网络/API、结构解析、缺少结构化结果及空白项校验失败共用预算，SDK 内置重试已关闭。
+多查询稠密路径也生成关键词但不使用，采用默认关键词上限 12，继续忽略引擎传入的 `max_terms`。
+多查询和混合路径在检索前完成生成，空召回不减少调用次数。方法名去掉首尾空白后转为大写；
+未知方法、空白请求及当前方法使用的无效数量参数在调用 LLM 前报错。数量参数拒绝布尔值和非整数，
+未使用的参数不参与校验。数据库、模型和最终查询生成异常直接传播。
 
 三个权重用于 `HRRF` 和 `HPRF`，在创建查询生成器及调用 LLM 前完成校验；其他方法忽略
 这些参数，不对其校验或透传。权重含义与各自底层检索器一致，自定义处理器继续使用下述原有签名。
@@ -365,11 +383,27 @@ handler(request: str, limit: int, *, max_terms: int, max_queries: int) -> list[S
 
 ```text
 QueryGenerator(*, model=None, client=None)
+generate(request: str, *, max_terms=12, max_queries=4) -> RetrievalInputs
 generate_terms(request: str, max_terms=12) -> list[str]
 generate_queries(request: str, max_queries=4) -> list[str]
+
+RetrievalInputs:
+    terms: list[str]
+    recall_queries: list[str]
+    query: str
 ```
 
-两个方法各执行一次逻辑 LLM 调用，生成 1 至指定上限的英文检索输入。`max_terms` 至少为 5，独立生成器没有上界；接入引擎的稀疏路径限制为 20。`max_queries` 为正整数，设为 1 时使用整合主题与约束的专用提示词。结构化模型按类型和上限缓存，最多 32 项，不缓存 LLM 响应；返回内容中的空白项与结构校验失败一样，附带最近一次错误反馈重新生成，共用该逻辑调用最多 4 次请求的预算。网络/API 异常保留已有校验反馈，按共享尝试序号等待 1、2、4 秒后重试；解析和业务校验失败立即重试，预算耗尽后原样抛出最后一次异常。
+`QueryGenerator` 与 `RetrievalInputs` 均从 `arxiv_paper_recommend.retrieval.query` 导出。
+`generate()` 一次生成三个必需字段：1 至 `max_terms` 个英文关键词、1 至 `max_queries` 条
+英文分面查询，以及一条整合研究主题和约束的主查询。`max_queries=1` 时仍分别生成一条分面和一条主查询。
+列表数量由动态结构化模型限制，拒绝额外字段和空白内容；最多重试 5 次，含首次最多请求 6 次。
+网络/API 异常按共享尝试序号等待 1、2、4、8、16 秒后重试，解析或业务校验失败立即携带最近错误重新生成。
+
+`generate_terms()` 和 `generate_queries()` 保留，各执行一次专用逻辑调用，最多重试 3 次、含首次最多请求 4 次；
+网络/API 异常的等待为 1、2、4 秒。旧 `generate_queries(max_queries=1)` 继续使用整合查询专用提示词。
+接收 `max_terms` 的生成方法要求该值至少为 5，独立生成器没有上界；引擎使用关键词的路径限制为 20。
+`max_queries` 为正整数。结构化模型缓存分别最多 32 项，不缓存 LLM 响应。
+每次调用的 API、解析和业务校验失败共用预算，保留原有错误反馈机制，耗尽后原样抛出最后一次异常。
 
 生成器与推荐生成器共同使用 `StructuredGenerator`，配置在构造时读取：进程环境变量优先于根目录 `.env`，不修改进程环境。显式 `model` 覆盖配置中的模型。自建客户端显式设置 `max_retries=0`；每次逻辑调用通过 `client.with_options(max_retries=0)` 获取关闭 SDK 重试的客户端视图，覆盖注入客户端的重试配置，不修改原客户端配置。注入客户端不创建新的底层连接，也不接管其资源，仍由调用方关闭。
 
@@ -379,7 +413,11 @@ generate_queries(request: str, max_queries=4) -> list[str]
 | `LLM_API_URL` | 客户端 `base_url` |
 | `LLM_MODEL` | 非空模型名称，构造时校验 |
 
-当前调用为 `OpenAI.responses.parse`，传入 Pydantic `text_format`。查询生成和[推荐生成](recommendation.md)的逐篇判断使用 `reasoning={"effort": "none"}` 和 `temperature=0`；集中排序使用 `reasoning={"effort": "high"}`，不发送 `temperature`。共享调用层支持按调用指定 reasoning，服务与模型必须支持相应组合；没有自动切换其他生成接口的逻辑。
+当前调用为 `OpenAI.responses.parse`，传入 Pydantic `text_format`。统一查询生成与
+[推荐生成](recommendation.md)的集中排序使用 `reasoning={"effort": "high"}`，不发送 `temperature`；
+旧独立查询生成方法与逐篇判断使用 `reasoning={"effort": "none"}` 和 `temperature=0`。
+共享调用层支持按调用指定 reasoning 与重试上限，默认重试上限仍为 3，统一查询生成显式设为 5。
+服务与模型必须支持相应组合；没有自动切换其他生成接口的逻辑。
 
 查询生成不接收检索结果，也不生成推荐理由。自然语言日期、分类等约束只保留在提示词中，不构成元数据硬过滤。
 

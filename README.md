@@ -94,7 +94,7 @@ Copy-Item .env.example .env
 
 默认向量模型固定为 `Qwen/Qwen3-Embedding-0.6B` 的指定版本，优先逐文件读取本地 HF 缓存，只匿名下载缺失文件，不使用本机 HF 登录凭据。首次使用需联网下载约 1.2 GB 的模型文件；文件完整后，向量模型加载及编码均可离线进行。LLM 查询与推荐生成仍需连接 `.env` 配置的服务。自定义模型来源保留原有加载及认证方式。
 
-每个逻辑 LLM 调用最多重试 3 次，含首次最多请求 4 次。关键词、分面查询、主查询、每篇论文判断和集中排序分别拥有独立预算；网络/API 异常、结构解析、缺少结构化结果、引用及排序等输出校验失败共用该预算。SDK 内置重试已关闭，不存在嵌套重试。校验失败时附带最近一次错误反馈立即重新生成；网络/API 异常按共享尝试序号等待 1、2、4 秒后重试，并保留已有校验反馈。第 4 次失败原样抛出最后一次异常，不放宽字段约束或原文引用要求。
+统一查询生成最多重试 5 次，含首次最多请求 6 次；旧独立关键词／查询生成、每篇论文判断和集中排序各自最多重试 3 次，含首次最多请求 4 次。网络/API 异常、结构解析、缺少结构化结果、理由非空及排序等输出校验失败共用各次调用的预算；引用标记与原文不再校验。SDK 内置重试已关闭，不存在嵌套重试。校验失败时附带最近一次错误反馈立即重新生成；网络/API 异常保留反馈，按共享尝试序号等待 1、2、4 秒，统一查询生成可继续等待 8、16 秒。耗尽后共享层抛出最后一次异常；单篇判断由上层打印错误并按不推荐处理，其他阶段继续传播异常。
 
 ### 统一全流程接口
 
@@ -155,7 +155,7 @@ recommend(request, *, candidate_limit=30, limit=10, max_terms=12, max_queries=4)
 
 `request` 为去除首尾空白后的需求，`recommendations` 按最终排名排列，`rank` 从 1 开始；`score` 保留检索分数，`reason` 完整保留 `[[cite]]...[[/cite]]` 原文引用标记。结果只包含最终推荐，不附带全部候选。
 
-检索为空或初筛全部不推荐时，返回 `{"request": "...", "recommendations": []}`；检索为空时不会创建推荐生成器。输入错误、检索异常、LLM 异常及引用校验失败直接抛出，不返回部分结果。
+检索为空或初筛没有成功推荐项时，返回 `{"request": "...", "recommendations": []}`；检索为空时不会创建推荐生成器。单篇评估重试耗尽后打印论文 arXiv ID、异常类型与错误，按不推荐处理并继续其他候选。仅一篇通过时直接返回该篇并设为第 1 名，跳过 LLM 排序。输入错误、资源初始化、检索／查询生成异常和集中排序最终异常继续抛出。
 
 同一个 `PaperRecommender` 可多次调用，按需创建并复用引擎及生成器，退出 `with` 或调用 `close()` 时关闭自建资源，重复关闭无额外效果；关闭后不能继续调用。通过构造参数注入的 `SearchEngine` 和 `EvidenceGroundedRecommendationGenerator` 由调用方管理生命周期。默认组件继续使用现有数据路径和 `.env`／环境变量配置。
 
@@ -179,7 +179,9 @@ with SearchEngine() as engine, RecommendationGenerator() as generator:
         )
 ```
 
-`SearchEngine` 按需创建并复用组件；省略 `method` 时使用 `FC_HNSW`，方法名不区分大小写。显式指定 `HNSW` 或 `MULTI_QUERY_HNSW` 仍执行原算法；混合检索默认复用 FC-HNSW 组件，执行各自的候选选择与融合规则。推荐生成也可消费直接调用 BM25 得到的候选。两种生成器均取前 30 条候选并去重，以最多 5 个并发请求逐篇判断，再仅对推荐项调用一次 API 筛选排序；最终返回 `min(limit, 初筛推荐数)` 项，初筛全部不推荐时返回空列表。推荐第一阶段逐篇判断关闭 thinking，设置 `temperature=0`；第二阶段集中排序使用 `thinking=high`，不发送 `temperature`。查询生成继续关闭 thinking 并使用 `temperature=0`。候选限制与输出校验见[推荐生成](docs/recommendation.md)。
+`SearchEngine` 按需创建并复用组件；省略 `method` 时使用 `FC_HNSW`，方法名不区分大小写。显式指定 `HNSW` 或 `MULTI_QUERY_HNSW` 仍执行原检索算法；混合检索默认复用 FC-HNSW 组件，执行各自的候选选择与融合规则。多查询稠密和全部混合方法将关键词、分面查询与主查询合为一次结构化生成，使用 `thinking=high`、省略 `temperature`，最多重试 5 次（含首次最多 6 次请求）。BM25、标题加权 BM25 和单查询 HNSW 保留专用生成，继续关闭 thinking、设置 `temperature=0`，最多重试 3 次。
+
+推荐生成也可消费直接调用 BM25 得到的候选。两种生成器均取前 30 条候选并去重，以最多 5 个并发请求逐篇判断；只有至少两篇通过时才调用一次 API 筛选排序，最终返回 `min(limit, 成功初筛推荐数)` 项。逐篇判断关闭 thinking，设置 `temperature=0`；集中排序使用 `thinking=high`，不发送 `temperature`。两阶段仍各自最多重试 3 次。候选限制与输出校验见[推荐生成](docs/recommendation.md)。
 
 选择 `HRRF` 或 `HPRF` 时可分别配置稀疏候选内的语义占比、稠密候选内的语义占比和最终稠密路占比，三个权重默认均为 `0.5`，范围均为 `[0, 1]`：
 
@@ -195,7 +197,7 @@ with SearchEngine() as engine:
 
 底层入口 `retrieval.hybrid.HRRFRetriever.search()` 和 `retrieval.innovation.HPRFRetriever.search()` 支持相同三个权重，分别用于 RRF 和排名百分位融合；公式与边界规则见[检索 API](docs/retrieval.md#混合检索)。HRRF 默认排序保持不变，最终分数因权重归一化变为原来的一半。旧 `FACET_COVERAGE` 入口已移除，迁移方式见[接口迁移](docs/migration.md)。
 
-两种生成器统一返回 `PaperRecommendation`，其中 `reason` 包含 1～2 处 `[[cite]]原文片段[[/cite]]` 引用，程序逐处检查其是否为对应标题或摘要的精确连续原文。`arxiv_paper_recommend.recommendation.innovation` 中的 `EvidenceGroundedRecommendationGenerator` 使用相同的调用方式，进一步通过提示词要求理由中的论文具体主张由标注片段直接支持。原文匹配不保证语义支持性；作者、日期、来源 URL 和完整引用系统仍待补充。原有独立 `evidence` 字段已移除，接口与示例见[证据生成](docs/evidence_grounded_generation.md)。
+两种生成器统一返回 `PaperRecommendation`，提示词继续要求 `reason` 包含 1～2 处 `[[cite]]原文片段[[/cite]]` 引用。程序保留模型生成的标记，不再校验引用数量、配对、嵌套、引用内容非空或原文匹配；理由非空、结构与排序结果校验保留。`arxiv_paper_recommend.recommendation.innovation` 中的 `EvidenceGroundedRecommendationGenerator` 使用相同的调用方式，进一步通过提示词要求理由中的论文具体主张由标注片段直接支持。引用格式、原文对应关系和语义支持性需单独评估；作者、日期、来源 URL 和完整引用系统仍待补充。原有独立 `evidence` 字段已移除，接口与示例见[证据生成](docs/evidence_grounded_generation.md)。
 
 已提供[生成对比实验脚本](experiments/generation/README.md)，用于保存固定检索候选，再配对运行基础方法与证据生成方法。正式质量、延迟与成本结论仍待评估。
 
@@ -206,7 +208,7 @@ with SearchEngine() as engine:
 | [项目结构](structure.md) | 模块职责、依赖方向与数据流 |
 | [检索 API](docs/retrieval.md) | 检索接口、九种方法、分数与资源管理 |
 | [推荐生成](docs/recommendation.md) | 生成接口、候选与响应校验 |
-| [证据生成](docs/evidence_grounded_generation.md) | 原文证据接口、精确匹配与语义验证边界 |
+| [证据生成](docs/evidence_grounded_generation.md) | 原文证据接口、引用格式与语义验证边界 |
 | [生成对比实验](experiments/generation/README.md) | 固定候选、配对生成与 JSONL 输出 |
 | [向量化](docs/vectorization.md) | 模型、设备、编码和查询指令 |
 | [数据与索引构建](docs/data.md) | 来源、统计、存储格式和离线构建 |

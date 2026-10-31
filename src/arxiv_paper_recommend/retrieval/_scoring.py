@@ -7,7 +7,7 @@ if TYPE_CHECKING:
 
 
 class DenseScoreCache:
-	"""Cache raw_score() results per request, including unavailable scores."""
+	"""Batch and cache raw inner products per request, including missing scores."""
 
 	def __init__(
 		self,
@@ -20,6 +20,7 @@ class DenseScoreCache:
 		)
 
 	def ensure(self, query_ids: dict[str, list[int]]) -> None:
+		missing: dict[str, list[int]] = {}
 		for query, document_ids in query_ids.items():
 			cached = self.scores.setdefault(query, {})
 			missing_ids = [
@@ -28,4 +29,16 @@ class DenseScoreCache:
 				if document_id not in cached
 			]
 			if missing_ids:
-				cached.update(self.retriever.raw_score(query, missing_ids))
+				missing[query] = missing_ids
+		if not missing:
+			return
+		document_ids = list(
+			dict.fromkeys(
+				document_id for ids in missing.values() for document_id in ids
+			)
+		)
+		batch_scores = self.retriever.raw_score_many(list(missing), document_ids)
+		for query, ids in missing.items():
+			self.scores[query].update(
+				(document_id, batch_scores[query][document_id]) for document_id in ids
+			)

@@ -2,6 +2,28 @@
 
 本文记录不兼容变更。当前用法见[检索 API](retrieval.md)、[推荐生成](recommendation.md)和[数据与构建](data.md)。除明确列出的兼容名称外，旧名称不提供别名或转发模块。
 
+## Pipeline 查询生成、容错与批量评分（2026-10-31）
+
+多查询稠密及全部混合引擎入口改为一次 `QueryGenerator.generate()`，返回公开的
+`RetrievalInputs(terms, recall_queries, query)`，使用 `thinking=high`、省略 `temperature`，
+最多重试 5 次（含首次最多 6 次请求）。原 `generate_terms()`、`generate_queries()` 保留，
+BM25、标题加权 BM25 和单查询 HNSW 继续使用这些专用方法及原有重试预算。
+注入的自定义查询生成器在多输入路径中需要支持新 `generate()` 接口。
+
+单篇评估耗尽重试后打印论文 arXiv ID、异常类型与错误内容，按不推荐处理并继续其他候选。
+初筛仅一篇成功推荐时直接返回并设为第 1 名，跳过排序；至少两篇时仍由 LLM 选择和排序，
+集中排序最终失败继续传播。推荐调用仍各自最多重试 3 次。
+
+引用生成提示词与 `[[cite]]原文片段[[/cite]]` 格式保留，但不再校验标记数量、配对、嵌套、
+引用内容非空或原文匹配。理由非空、结构、严格类型及排序输出校验保留。
+调用方不应再将成功返回视为引用格式或原文匹配已通过校验。
+
+HNSW 新增 `raw_score_many(queries, document_ids)`；单查询评分、缓存补评分及 FC 评分改用
+共享查询编码、单批候选向量和矩阵内积，评分公式保持等价，允许浮点计算的微小差异。
+自定义稠密组件需支持批量原始评分，内置 HNSW 基类已提供实现。
+HPRF 所有百分位转换对并列分数使用平均名次，最终同分仍按文档 ID 排列，因此存在并列时
+分数或排名可能变化。无需重建数据库或索引，本次不新增或运行测试、实验。
+
 ## SD Cascade 直接按 dense score 重排（2026-10-31）
 
 `SDCascadeRetriever.search()` 和引擎方法 `SD_CASCADE` 现在对全部 BM25 候选调用
@@ -108,9 +130,9 @@ uv run python -m arxiv_paper_recommend.corpus.build_database
 两种推荐生成器共同实现 `BaseRecommendationGenerator`，公开 `generate(request, papers, limit=10)` 调用方式不变，统一返回 `list[PaperRecommendation]`：
 
 - 第一阶段逐篇返回严格的 `recommended: bool` 与 `reason: str`，最多 5 个请求并发。
-- `reason` 必须包含 1～2 处 `[[cite]]原文片段[[/cite]]`，两种实现都校验精确原文，包括不推荐项。
-- 第二阶段只筛选排序初筛推荐项，最终数量为 `min(limit, 初筛推荐数)`，初筛全部不推荐时返回空列表。
-- 所有推荐调用开启 `reasoning.effort="high"` 并省略 `temperature`；查询生成设置不变。
+- 提示词要求 `reason` 包含 1～2 处 `[[cite]]原文片段[[/cite]]`；引用标记与原文不再校验，见本文开头的 Pipeline 更新。
+- 第二阶段只筛选排序成功初筛推荐项，最终数量为 `min(limit, 初筛推荐数)`；无推荐时返回空列表，单篇直接返回。
+- 逐篇判断使用 `reasoning.effort="none"`、`temperature=0`，集中排序使用 `high` 并省略 `temperature`；统一查询生成同样使用 `high`，独立查询方法保留 `none`。
 
 `EvidenceGroundedRecommendation` 保留原有导入路径，现为 `PaperRecommendation` 的别名。独立 `evidence` 字段已移除；调用方应使用包含引用标记的 `reason`，不再访问 `item.evidence` 或以旧 `evidence` 参数构造结果。生成对比脚本也统一保存带标记的 `reason`，不再写入单独的 `evidence`。
 
@@ -159,7 +181,7 @@ with MultiQueryHNSWRetriever() as retriever:
 
 本节结构与命名调整未改变数据库论文表、JSONL、NPZ 的字段：存储的 `id`、`doc_id` 映射到 Python 结果的 `document_id`、`arxiv_id`；该调整本身未要求重建数据库或向量索引，也未改变检索算法、默认参数、分数尺度或查询生成调用次数。后续的全文索引结构与评分变更需另按本文开头的“标题与摘要独立 BM25”升级说明处理。
 
-查询生成拒绝空白项。当前推荐流程检查全部初筛理由及引用，再校验集中排序结果的候选归属、去重与准确数量；不会通过截断响应跳过错误项。
+查询生成拒绝空白项。当前推荐流程检查全部初筛响应的结构及理由非空，再校验集中排序结果的候选归属、去重与准确数量。引用不再校验，单篇评估重试耗尽后打印错误并按不推荐处理；排序校验不会通过截断响应绕过。
 
 ## 历史迁移记录（本轮重构前）
 

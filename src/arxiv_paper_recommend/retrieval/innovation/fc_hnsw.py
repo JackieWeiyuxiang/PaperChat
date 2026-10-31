@@ -1,7 +1,6 @@
 """Rerank the complete multi-query HNSW pool by facet coverage."""
 
 from collections.abc import Sequence
-from dataclasses import replace
 from math import ceil, sqrt
 
 from arxiv_paper_recommend.common.validation import (
@@ -102,18 +101,21 @@ class FCHNSWRetriever(MultiQueryHNSWRetriever):
 		)
 		coverage_weight = validate_weight(coverage_weight, "Coverage weight")
 
-		results = self.raw_recall(query, limit=limit, recall_queries=facets)
-		if not results:
-			return []
-		candidates = {result.document_id: result for result in results}
-		cache = DenseScoreCache(
-			self,
-			{query: {result.document_id: result.score for result in results}},
+		scoring_queries = (
+			[query]
+			if coverage_weight == 0.0
+			else list(
+				dict.fromkeys([*([query] if coverage_weight < 1.0 else []), *facets])
+			)
 		)
+		candidates, raw_scores = self._recall_candidates(facets, scoring_queries, limit)
+		if not candidates:
+			return []
+		cache = DenseScoreCache(self, raw_scores)
 		scores = raw_coverage_scores(
 			list(candidates), query, facets, coverage_weight, cache
 		)
 		return [
-			replace(candidates[document_id], score=scores[document_id])
+			SearchResult(*candidates[document_id], score=scores[document_id])
 			for document_id in rank_ids(candidates, scores, descending=True)
 		]

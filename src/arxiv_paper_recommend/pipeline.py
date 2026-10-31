@@ -40,8 +40,9 @@ class PaperRecommender(ManagedResource):
 		"""Return the normalized request and ranked recommendations as plain data.
 
 		Validate all inputs before creating resources or calling either stage.
-		An empty retrieval skips generator creation. Stage errors propagate without
-		returning partial recommendations; citation markers remain unchanged.
+		An empty retrieval skips generator creation. Failed paper assessments are
+		omitted; retrieval and ranking errors propagate. Reasons retain generated
+		citation markers without citation validation.
 		"""
 		self._ensure_open()
 		request = validate_text(request, "Research request", strip=True)

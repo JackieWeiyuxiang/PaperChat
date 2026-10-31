@@ -1,6 +1,6 @@
 """FAISS HNSW text retrieval and exact candidate scoring."""
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 from sqlite3 import SQLITE_LIMIT_VARIABLE_NUMBER, connect
 
@@ -8,7 +8,11 @@ import faiss
 import numpy as np
 from numpy.typing import NDArray
 
-from arxiv_paper_recommend.common.validation import validate_integer, validate_text
+from arxiv_paper_recommend.common.validation import (
+	normalize_queries,
+	validate_integer,
+	validate_text,
+)
 from arxiv_paper_recommend.config import DATABASE_PATH, INDEX_PATH
 from arxiv_paper_recommend.vectorization import Qwen3Vectorizer
 
@@ -62,12 +66,41 @@ class HNSWRetriever(Retriever[str]):
 		"""Return exact inner products independently of subclass score formulas."""
 		self._ensure_open()
 		validate_text(query, "Query")
-		scores: dict[int, float | None] = dict.fromkeys(document_ids)
-		valid_ids, vectors = self._reconstruct_documents(list(scores))
+		return self.raw_score_many([query], document_ids)[query]
+
+	def raw_score_many(
+		self, queries: Sequence[str], document_ids: list[int]
+	) -> dict[str, dict[int, float | None]]:
+		"""Batch exact inner products, preserving first query and ID occurrence order.
+
+		Each candidate vector is reconstructed once for all queries. Missing IDs
+		return None; an empty query sequence returns {}. No queries are encoded
+		when none of the requested document IDs can be scored.
+		"""
+		self._ensure_open()
+		return self._score_queries(normalize_queries(queries), document_ids)
+
+	def _score_queries(
+		self,
+		queries: list[str],
+		document_ids: list[int],
+		*,
+		query_vectors: NDArray[np.float32] | None = None,
+	) -> dict[str, dict[int, float | None]]:
+		"""Share one document matrix, optionally reusing vectors prepared for recall."""
+		scores: dict[str, dict[int, float | None]] = {
+			query: dict.fromkeys(document_ids) for query in queries
+		}
+		if not queries:
+			return scores
+		valid_ids, vectors = self._reconstruct_documents(document_ids)
 		if not valid_ids:
 			return scores
-		query_vector = self._prepare_queries([query])[0]
-		scores.update(zip(valid_ids, (vectors @ query_vector).tolist()))
+		if query_vectors is None:
+			query_vectors = self._prepare_queries(queries)
+		similarities = vectors @ query_vectors.T
+		for query, values in zip(queries, similarities.T.tolist(), strict=True):
+			scores[query].update(zip(valid_ids, values, strict=True))
 		return scores
 
 	def _results_from_neighbors(

@@ -169,12 +169,12 @@ class SearchEngine(ManagedResource):
 			validate_integer(max_queries, "max_queries")
 		generator = self._get_query_generator()
 		retriever = self._get_dense_retriever()
-		recall_queries = (
-			generator.generate_queries(request, max_queries=max_queries)
-			if multi_query
-			else None
-		)
-		query = generator.generate_queries(request, max_queries=1)[0]
+		if multi_query:
+			inputs = generator.generate(request, max_queries=max_queries)
+			query, recall_queries = inputs.query, inputs.recall_queries
+		else:
+			query = generator.generate_queries(request, max_queries=1)[0]
+			recall_queries = None
 		if facet_coverage:
 			return retriever.search(query, limit=limit, recall_queries=recall_queries)
 		# Explicit baseline methods retain their algorithms on the shared FC instance.
@@ -213,23 +213,24 @@ class SearchEngine(ManagedResource):
 			sparse_retriever=self._get_sparse_retriever(),
 			dense_retriever=self._get_dense_retriever(),
 		) as retriever:
-			terms = generator.generate_terms(request, max_terms=max_terms)
-			recall_queries = generator.generate_queries(
-				request, max_queries=max_queries
+			inputs = generator.generate(
+				request, max_terms=max_terms, max_queries=max_queries
 			)
-			query = generator.generate_queries(request, max_queries=1)[0]
 			if isinstance(retriever, (HRRFRetriever, HPRFRetriever)):
 				return retriever.search(
-					terms,
-					query,
+					inputs.terms,
+					inputs.query,
 					limit=limit,
-					recall_queries=recall_queries,
+					recall_queries=inputs.recall_queries,
 					sparse_semantic_weight=sparse_semantic_weight,
 					dense_semantic_weight=dense_semantic_weight,
 					fusion_weight=fusion_weight,
 				)
 			return retriever.search(
-				terms, query, limit=limit, recall_queries=recall_queries
+				inputs.terms,
+				inputs.query,
+				limit=limit,
+				recall_queries=inputs.recall_queries,
 			)
 
 	def _get_query_generator(self) -> QueryGenerator:

@@ -9,6 +9,18 @@ from arxiv_paper_recommend.llm import StructuredGenerator
 
 from ..constants import DEFAULT_MAX_QUERIES, DEFAULT_MAX_TERMS, MIN_GENERATED_TERM_COUNT
 
+MAX_RETRIEVAL_INPUT_RETRIES = 5
+
+
+class RetrievalInputs(BaseModel):
+	"""Keywords, semantic facets, and one integrated main query."""
+
+	model_config = ConfigDict(extra="forbid")
+
+	terms: list[str] = Field(min_length=1)
+	recall_queries: list[str] = Field(min_length=1)
+	query: str = Field(min_length=1)
+
 
 class TermsGenerationResult(BaseModel):
 	"""Validated keywords for sparse paper retrieval."""
@@ -27,6 +39,30 @@ class QueriesGenerationResult(BaseModel):
 	queries: list[str] = Field(
 		min_length=1,
 		description="Concise English semantic queries for dense vector retrieval.",
+	)
+
+
+@lru_cache(maxsize=32)
+def _retrieval_inputs_model(max_terms: int, max_queries: int) -> type[RetrievalInputs]:
+	return create_model(
+		RetrievalInputs.__name__,
+		__base__=RetrievalInputs,
+		terms=(
+			list[str],
+			Field(
+				min_length=1,
+				max_length=max_terms,
+				description="English technical terms, synonyms and acronyms for BM25 retrieval.",
+			),
+		),
+		recall_queries=(
+			list[str],
+			Field(
+				min_length=1,
+				max_length=max_queries,
+				description="Concise English semantic queries covering distinct research facets.",
+			),
+		),
 	)
 
 
@@ -56,6 +92,17 @@ def _result_model[Result: BaseModel](
 class QueryGenerator(StructuredGenerator):
 	"""Reuse one client; each generation method has an independent retry budget."""
 
+	inputs_prompt_template: str = """
+        Given a user's research request, jointly generate retrieval inputs for academic papers by title and abstract.
+
+        - **terms**: 1 to {max_terms} relevant, specialized English keywords and phrases for sparse retrieval (BM25). Include relevant synonyms and acronyms while avoiding redundant terms.
+        - **recall_queries**: 1 to {max_queries} concise English semantic queries for dense retrieval. Cover distinct relevant aspects; use fewer queries when sufficient.
+        - **query**: exactly one concise, self-contained English semantic query integrating the core research topic, relevant relationships, and essential constraints into coherent natural language. Do not output a keyword list.
+        - Return all three fields, including both recall_queries and query when max_queries is 1.
+        - Preserve the user's focuses and constraints. Prioritize retrieval relevance and coverage, omit incidental details, and do not invent requirements.
+        - Do not add terms or queries just to reach the limits.
+
+    """
 	terms_prompt_template: str = """
         Given a user's research request, generate 1 to {max_terms} English match terms for retrieving academic papers by title and abstract.
 
@@ -81,6 +128,40 @@ class QueryGenerator(StructuredGenerator):
         - Prioritize retrieval relevance; omit incidental details and do not invent requirements.
 
     """
+
+	def generate(
+		self,
+		request: str,
+		*,
+		max_terms: int = DEFAULT_MAX_TERMS,
+		max_queries: int = DEFAULT_MAX_QUERIES,
+	) -> RetrievalInputs:
+		"""Generate all retrieval inputs with thinking and at most five retries."""
+		self._ensure_open()
+		validate_integer(max_terms, "max_terms", minimum=MIN_GENERATED_TERM_COUNT)
+		validate_integer(max_queries, "max_queries")
+		request = validate_text(request, "Research request", strip=True)
+
+		def validate_inputs(result: RetrievalInputs) -> RetrievalInputs:
+			for field, values in (
+				("term", result.terms),
+				("recall query", result.recall_queries),
+				("main query", [result.query]),
+			):
+				if any(not value.strip() for value in values):
+					raise RuntimeError(f"Generation returned an empty {field}.")
+			return result
+
+		return self._generate(
+			request,
+			self.inputs_prompt_template.format(
+				max_terms=max_terms, max_queries=max_queries
+			),
+			_retrieval_inputs_model(max_terms, max_queries),
+			reasoning_effort="high",
+			max_retries=MAX_RETRIEVAL_INPUT_RETRIES,
+			result_validator=validate_inputs,
+		)
 
 	def generate_terms(
 		self, request: str, max_terms: int = DEFAULT_MAX_TERMS

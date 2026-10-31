@@ -88,8 +88,35 @@ class MultiQueryHNSWRetriever(HNSWRetriever):
 		recall_limit = (
 			ceil(limit * sqrt(len(queries))) if result_limit is not None else limit
 		)
+		documents, raw_scores = self._recall_candidates(queries, [query], recall_limit)
+		if not documents:
+			return []
+		scores = raw_scores[query]
+		return [
+			SearchResult(*documents[document_id], score=scores[document_id])
+			for document_id in rank_ids(documents, scores, descending=True)[
+				:result_limit
+			]
+		]
+
+	def _recall_candidates(
+		self,
+		recall_queries: list[str],
+		scoring_queries: list[str],
+		limit: int,
+	) -> tuple[
+		dict[int, tuple[int, str, str, str | None]],
+		dict[str, dict[int, float | None]],
+	]:
+		"""Encode recall/scoring queries once and score one complete candidate pool."""
+		if not recall_queries or self.index.ntotal == 0:
+			return {}, {}
+		queries = list(dict.fromkeys([*scoring_queries, *recall_queries]))
+		query_vectors = self._prepare_queries(queries)
+		positions = {query: position for position, query in enumerate(queries)}
 		_, ids = self.index.search(
-			self._prepare_queries(queries), min(recall_limit, self.index.ntotal)
+			query_vectors[[positions[query] for query in recall_queries]],
+			min(limit, self.index.ntotal),
 		)
 		candidate_ids = list(
 			dict.fromkeys(
@@ -104,12 +131,11 @@ class MultiQueryHNSWRetriever(HNSWRetriever):
 			document_id for document_id in candidate_ids if document_id in documents
 		]
 		if not candidate_ids:
-			return []
-
-		scores = self.raw_score(query, candidate_ids)
-		return [
-			SearchResult(*documents[document_id], score=scores[document_id])
-			for document_id in rank_ids(candidate_ids, scores, descending=True)[
-				:result_limit
-			]
-		]
+			return {}, {}
+		return documents, self._score_queries(
+			scoring_queries,
+			candidate_ids,
+			query_vectors=query_vectors[
+				[positions[query] for query in scoring_queries]
+			],
+		)
