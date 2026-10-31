@@ -2,6 +2,21 @@
 
 本文记录不兼容变更。当前用法见[检索 API](retrieval.md)、[推荐生成](recommendation.md)和[数据与构建](data.md)。除明确列出的兼容名称外，旧名称不提供别名或转发模块。
 
+## SD Cascade 直接按 dense score 重排（2026-10-31）
+
+`SDCascadeRetriever.search()` 和引擎方法 `SD_CASCADE` 现在对全部 BM25 候选调用
+稠密组件的 `score()`，按分数降序、文档 ID 升序返回前 `limit` 篇。移除原先各分面
+分别选择前 `limit` 篇、合并后再按主查询内积重排的流程。
+
+默认 FC-HNSW 使用主查询内积与分面覆盖度的加权分数，`SearchResult.score` 同步使用
+该分数；注入原 HNSW 或多查询 HNSW 时沿用其主查询原始内积评分。
+`recall_queries=None` 使用主查询作为唯一分面；显式空序列现在按主查询原始内积
+重排稀疏候选，原先返回空列表。评分为 `None` 的候选不参与排序。
+
+稀疏召回预算仍为 `max(1, ceil(sqrt(limit × N)))`，`N` 来自 `count_documents()`；
+搜索签名及 `limit` 的 1～100 范围保持不变。无需重建数据库或向量索引，
+本次未新增或运行测试、实验。
+
 ## 分面搜索深度按分面数调整（2026-10-31）
 
 `MultiQueryHNSWRetriever.search()` 与 `FCHNSWRetriever.search()` 的默认每分面召回深度

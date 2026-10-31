@@ -1,18 +1,18 @@
-"""Use BM25 candidates for multi-query dense selection and reranking."""
+"""Rerank all BM25 candidates with the dense component's score."""
 
 from collections.abc import Sequence
 from dataclasses import replace
 from math import ceil, sqrt
 
 from .._ranking import rank_ids
-from .._scoring import DenseScoreCache
 from ..constants import DEFAULT_RESULT_LIMIT
+from ..innovation import FCHNSWRetriever
 from ..search_result import SearchResult
 from .base import HybridRetriever
 
 
 class SDCascadeRetriever(HybridRetriever):
-	"""Search densely within BM25 candidates without a full-index dense search."""
+	"""Score BM25 candidates densely without a full-index dense search."""
 
 	def search(
 		self,
@@ -23,7 +23,11 @@ class SDCascadeRetriever(HybridRetriever):
 		title_weight: float | None = None,
 		recall_queries: Sequence[str] | None = None,
 	) -> list[SearchResult]:
-		"""Recall ceil(sqrt(limit * corpus size)) candidates, select, then rerank."""
+		"""Recall ceil(sqrt(limit * corpus size)) candidates and rank dense scores.
+
+		FC-HNSW uses the normalized facets; other dense scorers use query only.
+		Unavailable scores are excluded; equal scores use ascending document ID.
+		"""
 		query_texts = self._validate_inputs(query, limit, recall_queries)
 		candidate_limit = max(
 			1, ceil(sqrt(limit * self.sparse_retriever.count_documents()))
@@ -37,26 +41,21 @@ class SDCascadeRetriever(HybridRetriever):
 		if not candidates:
 			return []
 
-		cache = DenseScoreCache(self.dense_retriever)
-		cache.ensure({division: list(candidates) for division in query_texts})
-		selected_ids: dict[int, None] = {}
-		for division in query_texts:
-			scores = cache.scores[division]
-			scored_ids = [
-				document_id
-				for document_id in candidates
-				if scores[document_id] is not None
-			]
-			for document_id in rank_ids(scored_ids, scores, descending=True)[:limit]:
-				selected_ids.setdefault(document_id, None)
-		if not selected_ids:
-			return []
-
-		cache.ensure({query: list(selected_ids)})
-		dense_scores = cache.scores[query]
+		document_ids = list(candidates)
+		if isinstance(self.dense_retriever, FCHNSWRetriever):
+			dense_scores = self.dense_retriever.score(
+				query, document_ids, recall_queries=query_texts
+			)
+		else:
+			dense_scores = self.dense_retriever.score(query, document_ids)
+		scored_ids = [
+			document_id
+			for document_id in document_ids
+			if dense_scores[document_id] is not None
+		]
 		return [
 			replace(candidates[document_id], score=dense_scores[document_id])
-			for document_id in rank_ids(selected_ids, dense_scores, descending=True)[
+			for document_id in rank_ids(scored_ids, dense_scores, descending=True)[
 				:limit
 			]
 		]

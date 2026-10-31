@@ -43,7 +43,7 @@ BM25 使用关键词列表，HNSW 使用单个字符串。评分按 ID 首次出
 | `abstract` | `str \| None` | 摘要 |
 | `score` | `float \| None` | 当前方法的分数，默认 `None` |
 
-BM25 越小越相关；内积、FC、RRF 和语义加权 RRF 越大越相关，分数不能跨方法直接比较。归一化向量的内积对应余弦相似度。FC 分数依赖本次候选集合，不能当作内积使用。
+BM25 越小越相关；内积、FC、RRF 和语义加权 RRF 越大越相关，分数不能跨方法直接比较。归一化向量的内积对应余弦相似度。FC 分数不依赖候选集合，不能当作主查询内积使用。
 
 共享重排将不可评分结果放在末尾，同分按整数 ID 升序；BM25 召回同样以整数 ID 升序处理同分，基础 HNSW 召回保留 FAISS 的返回顺序。多查询及混合检索创建新的结果对象，不改写底层返回对象。
 
@@ -216,7 +216,7 @@ HRRF、HPRF、SemanticRRF 默认用 FC-HNSW 的 `search()` 选择 dense 候选�
 `raw_score()` 获取并在单次搜索内缓存，不把 FC 分数用作内积。显式注入组件覆盖默认实现，
 因此默认组件和分面预算调整均可能改变混合检索候选；旧实验采用当时的多查询实现与预算。
 
-`query` 用于最终语义重排；`recall_queries` 指定稠密召回或候选内筛选查询，校验与多查询 HNSW 一致。`None` 使用主查询；空序列下 HRRF、HPRF、SemanticRRF 仅保留稀疏候选，SD Cascade 返回空列表。所有方法候选不足时返回较少结果。
+`query` 用于语义评分；`recall_queries` 指定稠密召回查询或 SD Cascade 的 FC 评分分面，校验与多查询 HNSW 一致。`None` 使用主查询；空序列下 HRRF、HPRF、SemanticRRF 仅保留稀疏候选，SD Cascade 使用主查询原始内积重排稀疏候选。所有方法候选不足时返回较少结果。
 
 ### HRRFRetriever
 
@@ -262,9 +262,13 @@ score(d) = RRF(d) × (cos(query, d) + 1)
 
 ### SDCascadeRetriever
 
-Sparse-to-Dense Cascade，稀疏到稠密级联检索。一阶段 BM25 召回最多 `ceil(sqrt(limit × N))` 篇，即 `limit` 与数据库文档总量的几何平均数向上取整；`N` 通过稀疏检索器的 `count_documents()` 获取，为整个 `documents` 表的文档数，与关键词匹配数量及向量索引大小无关。在这些候选内按每条召回查询的内积选取前 `limit` 篇并合并，再按主查询内积重排。
+Sparse-to-Dense Cascade，稀疏到稠密级联检索：
 
-缺少向量的候选不参与语义选择；本方法不执行全库 HNSW 搜索，也不计算 RRF。无稀疏候选、没有召回查询或没有可评分候选时返回空列表。
+1. BM25 按 `max(1, ceil(sqrt(limit × N)))` 的预算召回候选，并按文档 ID 去重。`N` 通过稀疏检索器的 `count_documents()` 获取，为整个 `documents` 表的文档数，与关键词匹配数量及向量索引大小无关。
+2. 对全部稀疏候选调用稠密组件的 `score()`。默认 FC-HNSW 接收校验、去重后的 `recall_queries`，使用主查询内积与分面覆盖度的加权分数；注入原 HNSW 或多查询 HNSW 时使用其 `score(query, document_ids)`，得到主查询原始内积。
+3. 排除评分为 `None` 的候选，按稠密分数降序、文档 ID 升序排列，最后返回前 `limit` 篇。`SearchResult.score` 为稠密评分，论文信息沿用稀疏召回结果。
+
+`recall_queries=None` 使用主查询作为唯一 FC 分面；显式空序列沿用 FC-HNSW 的 `score()` 行为，仅计算主查询原始内积。缺少向量的候选不参与排序；无稀疏候选或没有可评分候选时返回空列表。本方法不执行全库 HNSW 搜索，也不计算 RRF。
 
 ## HPRFRetriever
 

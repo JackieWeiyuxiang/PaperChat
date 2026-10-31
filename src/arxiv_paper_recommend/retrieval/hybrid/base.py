@@ -23,7 +23,7 @@ class HybridRetriever(ManagedResource, ABC):
 	"""Define hybrid search, own defaults, and borrow injected retrievers.
 
 	Hybrid strategies have no standalone candidate-scoring interface.
-	Dense components use public search, raw_recall, and raw_score methods.
+	Dense components use public search, score, raw_recall, and raw_score methods.
 	Components handle None options by falling back to their base implementations.
 	"""
 
@@ -60,10 +60,10 @@ class HybridRetriever(ManagedResource, ABC):
 		title_weight: float | None = None,
 		recall_queries: Sequence[str] | None = None,
 	) -> list[SearchResult]:
-		"""Return results with optional title weighting and multi-query recall.
+		"""Return results with optional title weighting and semantic facets.
 
-		Without divisions, query also supplies the recall/selection query.
-		The query still determines final semantic ranking.
+		Without facets, query also supplies the recall/scoring query.
+		Strategies use query and facets according to their ranking formulas.
 		"""
 		...
 
