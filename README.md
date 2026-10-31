@@ -15,6 +15,7 @@
 | `HRRF` | 两路候选分别重排，再融合排名 | 越大越相关 |
 | `SEMANTIC_RRF` | 按逐篇语义相似度加权 RRF | 越大越相关 |
 | `SD_CASCADE` | BM25 候选内执行多查询选择与重排 | 越大越相关 |
+| `FACET_COVERAGE` | 在 HRRF 候选上按最弱查询分面覆盖度重排 | 越大越相关 |
 
 不同方法的分数不能直接比较。目前没有正式质量或性能评估结论。独立来源引用、Web 界面和完整采集清洗流程仍待实现，详见[项目目标与进度](docs/project.md)。
 
@@ -95,7 +96,7 @@ with SearchEngine() as engine, RecommendationGenerator() as generator:
 | 文档 | 内容 |
 | --- | --- |
 | [项目结构](structure.md) | 模块职责、依赖方向与数据流 |
-| [检索 API](docs/retrieval.md) | 检索接口、七种方法、分数与资源管理 |
+| [检索 API](docs/retrieval.md) | 检索接口、八种方法、分数与资源管理 |
 | [推荐生成](docs/recommendation.md) | 生成接口、候选与响应校验 |
 | [证据生成](docs/evidence_grounded_generation.md) | 原文证据接口、精确匹配与语义验证边界 |
 | [生成对比实验](experiments/generation/README.md) | 固定候选、配对生成与 JSONL 输出 |
@@ -106,3 +107,4 @@ with SearchEngine() as engine, RecommendationGenerator() as generator:
 | [实验与评估](docs/evaluation.md) | 人工标注、指标与待执行实验 |
 
 [查询示例](data/example_queries.json)包含 40 条中英文研究请求，覆盖十个主题，尚无人工相关性标注。
+四方法代理实验的运行方式、结果文件和标签限制见[检索创新实验](experiments/README.md)。

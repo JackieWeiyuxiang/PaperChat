@@ -1,0 +1,950 @@
+{
+  "q1": {
+    "request": "I'm new to RAG and would like some papers to help me understand the main research directions.",
+    "terms": [
+      "retrieval-augmented generation",
+      "RAG",
+      "retrieval augmented language models",
+      "dense retrieval",
+      "sparse retrieval",
+      "knowledge-intensive NLP",
+      "open-domain question answering",
+      "large language models",
+      "external knowledge retrieval",
+      "survey"
+    ],
+    "query": "I'm new to RAG and would like some papers to help me understand the main research directions.",
+    "facets": [
+      "retrieval-augmented generation survey",
+      "retrieval-augmented generation for large language models",
+      "dense retrieval for open-domain question answering",
+      "knowledge-intensive NLP with retrieval augmentation"
+    ]
+  },
+  "q2": {
+    "request": "Please find papers on context compression for RAG, particularly methods that preserve the key evidence needed to answer a question.",
+    "terms": [
+      "context compression",
+      "RAG",
+      "retrieval-augmented generation",
+      "evidence preservation",
+      "key evidence",
+      "query-relevant compression",
+      "context pruning",
+      "document compression",
+      "evidence-grounded",
+      "answer-preserving compression",
+      "prompt compression",
+      "long context"
+    ],
+    "query": "Please find papers on context compression for RAG, particularly methods that preserve the key evidence needed to answer a question.",
+    "facets": [
+      "context compression for retrieval-augmented generation preserving key evidence",
+      "query-relevant context compression RAG answering questions",
+      "evidence-preserving document compression for RAG",
+      "compressing retrieved contexts while retaining answer-critical information"
+    ]
+  },
+  "q3": {
+    "request": "My RAG system retrieves content that looks relevant, but the answers are often poor. Are there papers studying this kind of problem?",
+    "terms": [
+      "retrieval-augmented generation",
+      "RAG",
+      "retrieval relevance",
+      "answer quality",
+      "faithfulness",
+      "hallucination",
+      "context relevance",
+      "noisy retrieval",
+      "irrelevant context",
+      "generation quality",
+      "retrieval-generation gap",
+      "grounded generation"
+    ],
+    "query": "My RAG system retrieves content that looks relevant, but the answers are often poor. Are there papers studying this kind of problem?",
+    "facets": [
+      "retrieved context appears relevant but generated answers are poor in retrieval-augmented generation",
+      "faithfulness and relevance mismatch between retrieved documents and RAG answer quality",
+      "evaluating retrieval-augmented generation answer quality despite relevant retrieved passages",
+      "noise and distractor passages degrading RAG generation performance"
+    ]
+  },
+  "q4": {
+    "request": "I'm looking for papers on evaluating citations in RAG answers, especially whether the cited evidence actually supports each claim.",
+    "terms": [
+      "citation evaluation",
+      "RAG",
+      "retrieval-augmented generation",
+      "citation verification",
+      "attribution",
+      "claim support",
+      "evidence grounding",
+      "faithfulness",
+      "citation correctness",
+      "entailment",
+      "attributable to identified sources",
+      "answer attribution"
+    ],
+    "query": "I'm looking for papers on evaluating citations in RAG answers, especially whether the cited evidence actually supports each claim.",
+    "facets": [
+      "evaluating citation quality and faithfulness in retrieval-augmented generation answers",
+      "whether cited evidence supports each claim in RAG-generated responses",
+      "citation verification and attribution evaluation for LLM generated answers",
+      "claim-level evidence support assessment in retrieval-augmented generation"
+    ]
+  },
+  "q5": {
+    "request": "Please recommend papers on repository-level code completion that focus on retrieving useful code context from other files.",
+    "terms": [
+      "repository-level code completion",
+      "repo-level code completion",
+      "cross-file code context",
+      "code context retrieval",
+      "retrieval-augmented code completion",
+      "code retrieval",
+      "context-aware code completion",
+      "repository context",
+      "cross-file context",
+      "code completion"
+    ],
+    "query": "Please recommend papers on repository-level code completion that focus on retrieving useful code context from other files.",
+    "facets": [
+      "repository-level code completion retrieving cross-file code context",
+      "retrieval-augmented code completion using relevant code from other files",
+      "context retrieval for repository-level code generation",
+      "cross-file dependency context selection for code completion"
+    ]
+  },
+  "q6": {
+    "request": "My agent sometimes gets stuck after a tool call fails. I'd like to find papers on how others handle this.",
+    "terms": [
+      "tool call failure",
+      "tool failure recovery",
+      "agent stuck",
+      "error handling LLM agent",
+      "tool use error recovery",
+      "agent failure recovery",
+      "robust tool invocation",
+      "LLM agent error handling",
+      "tool execution failure",
+      "agent retry mechanism",
+      "self-correction agent",
+      "fault tolerance LLM agent"
+    ],
+    "query": "My agent sometimes gets stuck after a tool call fails. I'd like to find papers on how others handle this.",
+    "facets": [
+      "LLM agent recovery from tool call failures",
+      "handling tool execution errors in autonomous agents",
+      "agent stuck loop after failed tool invocation",
+      "robust tool use failure handling for language model agents"
+    ]
+  },
+  "q7": {
+    "request": "Are there papers on memory for LLM agents? I'd like to get a sense of the different approaches.",
+    "terms": [
+      "memory",
+      "LLM agents",
+      "large language model agents",
+      "agent memory",
+      "long-term memory",
+      "episodic memory",
+      "memory retrieval",
+      "memory management",
+      "context window",
+      "retrieval-augmented generation",
+      "RAG",
+      "memory architecture"
+    ],
+    "query": "Are there papers on memory for LLM agents? I'd like to get a sense of the different approaches.",
+    "facets": [
+      "memory mechanisms for LLM agents",
+      "long-term memory architectures for large language model agents",
+      "memory retrieval and management in LLM-based agents",
+      "survey of memory approaches for LLM agents"
+    ]
+  },
+  "q8": {
+    "request": "I'd like to learn about multi-agent collaboration. Could you recommend some papers to start with?",
+    "terms": [
+      "multi-agent collaboration",
+      "multi-agent systems",
+      "multi-agent reinforcement learning",
+      "cooperative multi-agent",
+      "multi-agent coordination",
+      "multi-agent communication",
+      "emergent communication",
+      "cooperative behavior",
+      "agent cooperation",
+      "MARL"
+    ],
+    "query": "I'd like to learn about multi-agent collaboration. Could you recommend some papers to start with?",
+    "facets": [
+      "multi-agent collaboration",
+      "multi-agent reinforcement learning cooperation",
+      "LLM-based multi-agent systems collaboration",
+      "cooperative multi-agent communication and coordination"
+    ]
+  },
+  "q9": {
+    "request": "The reasoning model I use sometimes spends a long time on simple questions. Are there papers I could read about this?",
+    "terms": [
+      "overthinking",
+      "overthinking in reasoning models",
+      "reasoning models",
+      "chain-of-thought",
+      "test-time compute",
+      "inference-time scaling",
+      "adaptive computation",
+      "early exit",
+      "reasoning efficiency",
+      "long chain-of-thought",
+      "latency",
+      "LLM reasoning"
+    ],
+    "query": "The reasoning model I use sometimes spends a long time on simple questions. Are there papers I could read about this?",
+    "facets": [
+      "overthinking in reasoning models: excessive computation on simple questions",
+      "reasoning language models spend too long on easy problems",
+      "adaptive computation and early stopping for LLM reasoning",
+      "efficient reasoning: reducing unnecessary chain-of-thought length"
+    ]
+  },
+  "q10": {
+    "request": "Please recommend papers on verifying LLM reasoning processes, particularly methods for locating errors in intermediate steps.",
+    "terms": [
+      "LLM reasoning verification",
+      "process reward model",
+      "step-level verification",
+      "error localization",
+      "intermediate step errors",
+      "reasoning chain verification",
+      "verifier model",
+      "chain-of-thought error detection",
+      "process supervision",
+      "step-wise reward",
+      "reasoning trace evaluation",
+      "error attribution"
+    ],
+    "query": "Please recommend papers on verifying LLM reasoning processes, particularly methods for locating errors in intermediate steps.",
+    "facets": [
+      "verifying LLM reasoning processes and detecting errors in intermediate reasoning steps",
+      "locating errors in chain-of-thought reasoning steps of large language models",
+      "process reward models and step-level verification of LLM reasoning",
+      "error localization and step-level correctness evaluation in multi-step LLM reasoning"
+    ]
+  },
+  "q11": {
+    "request": "I'm looking for papers on self-correction in LLMs to see what work has been done in this area.",
+    "terms": [
+      "self-correction",
+      "self-correction in large language models",
+      "LLM self-correction",
+      "self-refinement",
+      "self-repair",
+      "self-improvement",
+      "self-verification",
+      "self-feedback",
+      "iterative refinement",
+      "error correction",
+      "self-critique",
+      "LLM"
+    ],
+    "query": "I'm looking for papers on self-correction in LLMs to see what work has been done in this area.",
+    "facets": [
+      "self-correction in large language models",
+      "LLM self-refinement and self-improvement",
+      "self-correction methods for LLM reasoning and generation",
+      "autonomous error correction in large language models"
+    ]
+  },
+  "q12": {
+    "request": "My visual question answering model sometimes mentions things that aren't in the image. I'd like papers studying this problem.",
+    "terms": [
+      "visual question answering",
+      "VQA",
+      "hallucination",
+      "object hallucination",
+      "language hallucination",
+      "unanswerable questions",
+      "faithfulness",
+      "grounding",
+      "vision-language models",
+      "multimodal hallucination",
+      "image-grounded generation",
+      "false positives"
+    ],
+    "query": "My visual question answering model sometimes mentions things that aren't in the image. I'd like papers studying this problem.",
+    "facets": [
+      "visual question answering model hallucination objects not present in image",
+      "object hallucination in vision-language models",
+      "VQA models generating answers about absent objects",
+      "detecting and mitigating hallucination in multimodal large language models"
+    ]
+  },
+  "q13": {
+    "request": "I'm looking for papers on how vision-language models handle high-resolution images.",
+    "terms": [
+      "vision-language models",
+      "high-resolution images",
+      "high-resolution image understanding",
+      "large vision-language models",
+      "LVLM",
+      "VLM",
+      "multimodal large language models",
+      "MLLM",
+      "high-resolution visual encoding",
+      "image resolution scaling",
+      "visual token compression",
+      "fine-grained visual perception"
+    ],
+    "query": "I'm looking for papers on how vision-language models handle high-resolution images.",
+    "facets": [
+      "vision-language models high-resolution image processing",
+      "high-resolution image encoding in multimodal large language models",
+      "efficient visual tokenization for high-resolution images in VLMs",
+      "multi-scale or tiling strategies for high-resolution vision-language understanding"
+    ]
+  },
+  "q14": {
+    "request": "I'm starting to explore video understanding and would like a few papers to learn what problems people are working on.",
+    "terms": [
+      "video understanding",
+      "video analysis",
+      "action recognition",
+      "temporal action localization",
+      "video captioning",
+      "video question answering",
+      "video-language",
+      "spatiotemporal modeling",
+      "video representation learning",
+      "event detection in video"
+    ],
+    "query": "I'm starting to explore video understanding and would like a few papers to learn what problems people are working on.",
+    "facets": [
+      "video understanding tasks and problems",
+      "video action recognition and temporal modeling",
+      "video question answering and captioning",
+      "survey of video understanding methods"
+    ]
+  },
+  "q15": {
+    "request": "When I ask a text-to-image model to put objects in specific positions, it often gets them wrong. Could you find some relevant papers?",
+    "terms": [
+      "text-to-image",
+      "spatial layout",
+      "object placement",
+      "spatial control",
+      "layout-to-image",
+      "positional accuracy",
+      "spatial reasoning",
+      "controllable generation",
+      "diffusion models",
+      "spatial relation",
+      "grounded generation",
+      "bounding box control"
+    ],
+    "query": "When I ask a text-to-image model to put objects in specific positions, it often gets them wrong. Could you find some relevant papers?",
+    "facets": [
+      "spatial layout control in text-to-image diffusion models",
+      "object position and location control in image generation",
+      "spatial reasoning and compositional accuracy in text-to-image models",
+      "layout-guided text-to-image synthesis"
+    ]
+  },
+  "q16": {
+    "request": "I'm looking for papers on character consistency in video generation, especially preserving a character's appearance and identity across frames.",
+    "terms": [
+      "character consistency",
+      "video generation",
+      "identity preservation",
+      "appearance preservation",
+      "temporal consistency",
+      "character identity",
+      "face identity preservation",
+      "subject consistency",
+      "video diffusion",
+      "text-to-video",
+      "consistent character",
+      "identity-aware video generation"
+    ],
+    "query": "I'm looking for papers on character consistency in video generation, especially preserving a character's appearance and identity across frames.",
+    "facets": [
+      "character consistency in video generation preserving appearance and identity across frames",
+      "identity-preserving video generation of consistent characters",
+      "temporal consistency of character appearance in generated videos",
+      "subject-driven video generation maintaining character identity"
+    ]
+  },
+  "q17": {
+    "request": "I'd like to learn about editing images with natural language instructions. What papers could I read?",
+    "terms": [
+      "instruction-based image editing",
+      "text-guided image editing",
+      "natural language image editing",
+      "language-guided image manipulation",
+      "text-to-image editing",
+      "instruction-driven editing",
+      "image editing with natural language instructions",
+      "text-conditioned image editing",
+      "prompt-based image editing",
+      "language-based image manipulation"
+    ],
+    "query": "I'd like to learn about editing images with natural language instructions. What papers could I read?",
+    "facets": [
+      "editing images with natural language instructions",
+      "text-guided image editing",
+      "instruction-based image manipulation",
+      "language-conditioned image editing models"
+    ]
+  },
+  "q18": {
+    "request": "I'd like to learn about applications of large language models in robotics. Could you find some papers to start with?",
+    "terms": [
+      "large language models",
+      "LLM",
+      "robotics",
+      "robot learning",
+      "embodied AI",
+      "task planning",
+      "instruction following",
+      "robot manipulation",
+      "foundation models",
+      "vision-language models",
+      "code generation for robots",
+      "LLM agents"
+    ],
+    "query": "I'd like to learn about applications of large language models in robotics. Could you find some papers to start with?",
+    "facets": [
+      "large language models for robotics applications",
+      "LLM-based robot task planning and control",
+      "language models for robot manipulation and embodied agents",
+      "foundation models and LLMs in robotic systems"
+    ]
+  },
+  "q19": {
+    "request": "My robot works well in its training setup but often fails with different objects or environments. I'd like to find related research.",
+    "terms": [
+      "domain randomization",
+      "sim-to-real transfer",
+      "generalization",
+      "distribution shift",
+      "robustness",
+      "out-of-distribution",
+      "domain adaptation",
+      "robot manipulation",
+      "policy generalization",
+      "unseen objects",
+      "environment variation",
+      "meta-learning"
+    ],
+    "query": "My robot works well in its training setup but often fails with different objects or environments. I'd like to find related research.",
+    "facets": [
+      "robot policy generalization to novel objects and environments",
+      "sim-to-real transfer of robotic manipulation policies",
+      "domain randomization for robot learning robustness",
+      "out-of-distribution generalization in robot manipulation"
+    ]
+  },
+  "q20": {
+    "request": "I'm looking for papers on robots learning from demonstrations, especially when there isn't much demonstration data.",
+    "terms": [
+      "learning from demonstration",
+      "imitation learning",
+      "robot learning from demonstrations",
+      "few-shot imitation learning",
+      "one-shot imitation learning",
+      "data-efficient imitation learning",
+      "sample-efficient imitation learning",
+      "meta-imitation learning",
+      "behavior cloning",
+      "demonstration data scarcity",
+      "low-data imitation learning",
+      "programmatic imitation"
+    ],
+    "query": "I'm looking for papers on robots learning from demonstrations, especially when there isn't much demonstration data.",
+    "facets": [
+      "robot learning from demonstrations with limited demonstration data",
+      "few-shot imitation learning for robots",
+      "data-efficient robot learning from demonstration",
+      "sample-efficient imitation learning with scarce demonstrations"
+    ]
+  },
+  "q21": {
+    "request": "My question-answering system often misses important information when a question requires several sources. Could you find papers studying this problem?",
+    "terms": [
+      "multi-hop question answering",
+      "multi-hop QA",
+      "multi-source question answering",
+      "multi-document question answering",
+      "multi-hop retrieval",
+      "information aggregation",
+      "evidence aggregation",
+      "multi-hop reasoning",
+      "retrieval-augmented question answering",
+      "distributed information retrieval",
+      "question decomposition",
+      "supporting fact retrieval"
+    ],
+    "query": "My question-answering system often misses important information when a question requires several sources. Could you find papers studying this problem?",
+    "facets": [
+      "multi-hop question answering with multiple sources",
+      "multi-document question answering information retrieval",
+      "multi-hop QA missing information across documents",
+      "question answering requiring reasoning over several sources"
+    ]
+  },
+  "q22": {
+    "request": "When I use multiple agents on a task, they often duplicate work or leave parts unfinished. Are there papers studying this?",
+    "terms": [
+      "multi-agent systems",
+      "multi-agent collaboration",
+      "task allocation",
+      "work duplication",
+      "redundant work",
+      "task decomposition",
+      "coordination",
+      "multi-agent coordination",
+      "task completion",
+      "incomplete tasks",
+      "LLM agents",
+      "agent cooperation"
+    ],
+    "query": "When I use multiple agents on a task, they often duplicate work or leave parts unfinished. Are there papers studying this?",
+    "facets": [
+      "multi-agent task allocation and coordination to avoid duplicated work",
+      "multi-agent systems task decomposition and division of labor",
+      "multi-agent collaboration redundancy and incomplete task coverage",
+      "cooperative multi-agent planning workload distribution and task assignment"
+    ]
+  },
+  "q23": {
+    "request": "Giving my reasoning model more time doesn’t always improve its answers. I’d like papers on when extra computation helps and when it is wasted.",
+    "terms": [
+      "test-time compute",
+      "inference-time scaling",
+      "reasoning budget",
+      "adaptive computation",
+      "overthinking",
+      "compute-optimal inference",
+      "chain-of-thought length",
+      "early stopping reasoning",
+      "diminishing returns computation",
+      "compute allocation reasoning",
+      "self-consistency sampling",
+      "reasoning efficiency"
+    ],
+    "query": "Giving my reasoning model more time doesn’t always improve its answers. I’d like papers on when extra computation helps and when it is wasted.",
+    "facets": [
+      "when does additional inference-time computation improve reasoning model accuracy",
+      "diminishing returns and wasted computation in extended chain-of-thought reasoning",
+      "test-time compute scaling laws for language model reasoning",
+      "overthinking and ineffective reasoning in large language models"
+    ]
+  },
+  "q24": {
+    "request": "My vision-language model gives detailed answers, but I’m not sure whether it actually understands the image or is guessing from general knowledge. Could you find related papers?",
+    "terms": [
+      "vision-language model",
+      "hallucination",
+      "visual grounding",
+      "faithfulness",
+      "image understanding",
+      "multimodal large language model",
+      "object hallucination",
+      "visual question answering",
+      "grounded captioning",
+      "language prior",
+      "modality gap",
+      "evaluation benchmark"
+    ],
+    "query": "My vision-language model gives detailed answers, but I’m not sure whether it actually understands the image or is guessing from general knowledge. Could you find related papers?",
+    "facets": [
+      "vision-language model hallucination and reliance on language priors instead of visual evidence",
+      "evaluating whether multimodal models truly ground answers in image content",
+      "measuring visual grounding and image understanding in vision-language models",
+      "object hallucination detection and faithfulness evaluation in large vision-language models"
+    ]
+  },
+  "q25": {
+    "request": "When I ask a model to change one object in an image, it also changes unrelated parts. I’d like papers studying these unintended edits.",
+    "terms": [
+      "unintended edits",
+      "unintended changes",
+      "spurious modifications",
+      "edit leakage",
+      "attribute leakage",
+      "locality of image editing",
+      "faithfulness of image editing",
+      "text-guided image editing",
+      "image manipulation",
+      "change disentanglement",
+      "edit preservation",
+      "irrelevant region preservation"
+    ],
+    "query": "When I ask a model to change one object in an image, it also changes unrelated parts. I’d like papers studying these unintended edits.",
+    "facets": [
+      "unintended changes and unintended edits in image editing models",
+      "localized image editing preserving unrelated regions",
+      "spurious or unwanted modifications outside the edit region in image-to-image models",
+      "faithful object editing without altering background or other objects"
+    ]
+  },
+  "q26": {
+    "request": "There are several valid ways to perform a robot task, but the actions my model learns from demonstrations sometimes don’t resemble any of them. Are there papers on this learning problem?",
+    "terms": [
+      "imitation learning",
+      "behavior cloning",
+      "multimodal demonstrations",
+      "multimodal trajectory",
+      "action multimodality",
+      "mode averaging",
+      "mode collapse",
+      "demonstration ambiguity",
+      "one-to-many mapping",
+      "inverse dynamics model",
+      "diffusion policy",
+      "mixture density policy"
+    ],
+    "query": "There are several valid ways to perform a robot task, but the actions my model learns from demonstrations sometimes don’t resemble any of them. Are there papers on this learning problem?",
+    "facets": [
+      "learning robot manipulation tasks from demonstrations with multiple valid solutions",
+      "multimodal behavior in imitation learning robot manipulation",
+      "mode averaging and multimodality in imitation learning policies",
+      "learning diverse valid strategies from human demonstrations for robot control"
+    ]
+  },
+  "q27": {
+    "request": "After running for a while, my agent mixes up old and new information and sometimes makes decisions using outdated information. Could you find related papers?",
+    "terms": [
+      "memory management",
+      "long-term memory",
+      "context window",
+      "information retrieval",
+      "memory consolidation",
+      "stale information",
+      "knowledge updating",
+      "temporal reasoning",
+      "memory forgetting",
+      "agent memory",
+      "retrieval-augmented generation",
+      "context management"
+    ],
+    "query": "After running for a while, my agent mixes up old and new information and sometimes makes decisions using outdated information. Could you find related papers?",
+    "facets": [
+      "agent memory management stale outdated information retrieval",
+      "long-term memory consistency in LLM agents over time",
+      "temporal reasoning and recency-aware memory for conversational agents",
+      "knowledge conflict resolution outdated versus updated information in agents"
+    ]
+  },
+  "q28": {
+    "request": "My model understands short video clips, but with longer videos it misses key events or gets their order wrong. I’d like to find related research.",
+    "terms": [
+      "long video understanding",
+      "long-form video",
+      "temporal event ordering",
+      "event localization",
+      "temporal grounding",
+      "video-language model",
+      "long video LLM",
+      "temporal reasoning",
+      "key event detection",
+      "video temporal relation",
+      "long-context video",
+      "video moment retrieval"
+    ],
+    "query": "My model understands short video clips, but with longer videos it misses key events or gets their order wrong. I’d like to find related research.",
+    "facets": [
+      "long video understanding temporal event ordering",
+      "temporal grounding and key event detection in long videos",
+      "long-form video language model missing events temporal reasoning",
+      "video LLM long video temporal localization"
+    ]
+  },
+  "q29": {
+    "request": "I’d like to learn about making large language models cheaper to train and run. Could you recommend some papers to start with?",
+    "terms": [
+      "large language models",
+      "efficient training",
+      "inference efficiency",
+      "model compression",
+      "quantization",
+      "knowledge distillation",
+      "pruning",
+      "parameter-efficient fine-tuning",
+      "low-rank adaptation",
+      "mixture of experts",
+      "sparse models",
+      "compute-efficient"
+    ],
+    "query": "I’d like to learn about making large language models cheaper to train and run. Could you recommend some papers to start with?",
+    "facets": [
+      "efficient training of large language models reducing computational cost",
+      "model compression and quantization for cheaper LLM inference",
+      "parameter-efficient fine-tuning and low-rank adaptation methods",
+      "sparse and mixture-of-experts architectures for efficient large language models"
+    ]
+  },
+  "q30": {
+    "request": "My language model uses a lot of GPU memory with long inputs. I’d like papers on reducing inference memory requirements.",
+    "terms": [
+      "inference memory reduction",
+      "GPU memory footprint",
+      "KV cache compression",
+      "KV cache eviction",
+      "long-context inference",
+      "memory-efficient inference",
+      "activation memory",
+      "attention memory optimization",
+      "inference memory footprint",
+      "long input sequence memory",
+      "LLM inference efficiency",
+      "memory-efficient attention"
+    ],
+    "query": "My language model uses a lot of GPU memory with long inputs. I’d like papers on reducing inference memory requirements.",
+    "facets": [
+      "reducing GPU memory usage for long-context language model inference",
+      "memory-efficient inference for large language models with long inputs",
+      "KV cache compression and memory optimization for transformer inference",
+      "long sequence inference memory reduction techniques"
+    ]
+  },
+  "q31": {
+    "request": "My model handles a single request reasonably quickly, but responses become much slower when many people use it at once. I’d like papers analyzing or improving this problem.",
+    "terms": [
+      "LLM inference serving",
+      "inference throughput",
+      "request batching",
+      "continuous batching",
+      "concurrent request handling",
+      "latency under load",
+      "serving system",
+      "KV cache management",
+      "model serving scalability",
+      "high-throughput inference",
+      "queueing delay",
+      "tail latency"
+    ],
+    "query": "My model handles a single request reasonably quickly, but responses become much slower when many people use it at once. I’d like papers analyzing or improving this problem.",
+    "facets": [
+      "inference latency degradation under concurrent requests for machine learning model serving",
+      "batching and scheduling techniques to improve throughput and latency for multi-user model inference",
+      "serving system optimization for high concurrency deep learning inference",
+      "tail latency and queueing analysis in ML model serving systems"
+    ]
+  },
+  "q32": {
+    "request": "I’d like to learn how large language models can help with software development. Could you find papers introducing the main directions?",
+    "terms": [
+      "large language models",
+      "LLM",
+      "software development",
+      "code generation",
+      "program synthesis",
+      "code completion",
+      "code understanding",
+      "automated program repair",
+      "code summarization",
+      "LLM agents software engineering",
+      "Copilot",
+      "code LLM"
+    ],
+    "query": "I’d like to learn how large language models can help with software development. Could you find papers introducing the main directions?",
+    "facets": [
+      "large language models for software development",
+      "LLM-based code generation and program synthesis",
+      "large language models for code understanding and completion",
+      "LLM agents for software engineering tasks"
+    ]
+  },
+  "q33": {
+    "request": "The code my model writes looks plausible but often fails the tests. Are there papers on improving this?",
+    "terms": [
+      "code generation",
+      "test pass rate",
+      "execution-based evaluation",
+      "unit test generation",
+      "self-debugging",
+      "program synthesis",
+      "LLM code correctness",
+      "test-driven generation",
+      "code repair",
+      "functional correctness",
+      "pass@k",
+      "verifier-guided decoding"
+    ],
+    "query": "The code my model writes looks plausible but often fails the tests. Are there papers on improving this?",
+    "facets": [
+      "improving code generation correctness and passing unit tests in large language models",
+      "LLM generated code fails tests plausible but incorrect program synthesis",
+      "execution-guided code generation with test feedback for language models",
+      "self-debugging and iterative repair of generated code using test execution"
+    ]
+  },
+  "q34": {
+    "request": "When I ask a model to fix a bug, it sometimes fixes one problem but introduces another. Are there papers studying this?",
+    "terms": [
+      "bug fixing",
+      "automated program repair",
+      "regression",
+      "fix-inducing changes",
+      "patch correctness",
+      "overfitting patches",
+      "plausible patches",
+      "test overfitting",
+      "repair correctness",
+      "introducing new bugs",
+      "SZZ",
+      "regression bugs"
+    ],
+    "query": "When I ask a model to fix a bug, it sometimes fixes one problem but introduces another. Are there papers studying this?",
+    "facets": [
+      "automated program repair introducing new bugs regression",
+      "fixing bugs with LLMs causing new bugs or regressions",
+      "evaluation of automated program repair correctness and side effects",
+      "neural program repair patch correctness and bug introduction"
+    ]
+  },
+  "q35": {
+    "request": "I’m starting to explore LLM safety. Please find papers that explain the main risks and research directions.",
+    "terms": [
+      "LLM safety",
+      "large language model safety",
+      "AI safety",
+      "risks of large language models",
+      "harmful content generation",
+      "jailbreak",
+      "prompt injection",
+      "alignment",
+      "AI risk taxonomy",
+      "safety research directions",
+      "LLM vulnerabilities",
+      "trustworthy LLMs"
+    ],
+    "query": "I’m starting to explore LLM safety. Please find papers that explain the main risks and research directions.",
+    "facets": [
+      "large language model safety risks and research directions survey",
+      "main risks and harms of large language models",
+      "LLM safety alignment challenges and open problems",
+      "taxonomy of risks in large language models"
+    ]
+  },
+  "q36": {
+    "request": "My agent reads web pages, and I’m concerned that malicious instructions on those pages could influence it. Could you find papers on defenses?",
+    "terms": [
+      "prompt injection",
+      "indirect prompt injection",
+      "web agent security",
+      "LLM agent defense",
+      "malicious instructions",
+      "instruction hierarchy",
+      "untrusted content",
+      "agentic AI security",
+      "jailbreak defense",
+      "content sanitization",
+      "tool-use agent safety",
+      "adversarial web content"
+    ],
+    "query": "My agent reads web pages, and I’m concerned that malicious instructions on those pages could influence it. Could you find papers on defenses?",
+    "facets": [
+      "defenses against prompt injection attacks from web content in LLM agents",
+      "indirect prompt injection defense for web-browsing agents",
+      "detecting malicious instructions in retrieved web pages for LLM agents",
+      "securing LLM agents against untrusted web content injection"
+    ]
+  },
+  "q37": {
+    "request": "I want a language model to stop revealing certain sensitive information, but I’m worried it may reveal it again if asked differently. Could you find papers studying this?",
+    "terms": [
+      "jailbreak",
+      "adversarial prompting",
+      "prompt injection",
+      "safety alignment",
+      "refusal training",
+      "sensitive information leakage",
+      "data extraction attacks",
+      "paraphrase robustness",
+      "red teaming",
+      "unlearning",
+      "guardrails",
+      "LLM privacy"
+    ],
+    "query": "I want a language model to stop revealing certain sensitive information, but I’m worried it may reveal it again if asked differently. Could you find papers studying this?",
+    "facets": [
+      "language model unlearning sensitive information robustness to paraphrased prompts",
+      "machine unlearning LLM preventing re-extraction of forgotten knowledge",
+      "robustness of knowledge removal in language models against rephrasing attacks",
+      "evaluating whether unlearned LLMs still reveal sensitive information under different prompts"
+    ]
+  },
+  "q38": {
+    "request": "I’d like to learn how AI is used in scientific research. Could you recommend papers illustrating different directions?",
+    "terms": [
+      "artificial intelligence",
+      "machine learning",
+      "scientific discovery",
+      "AI for science",
+      "automated scientific research",
+      "deep learning",
+      "scientific machine learning",
+      "AI-driven research",
+      "data-driven discovery",
+      "research automation"
+    ],
+    "query": "I’d like to learn how AI is used in scientific research. Could you recommend papers illustrating different directions?",
+    "facets": [
+      "artificial intelligence for scientific discovery and hypothesis generation",
+      "machine learning applications in scientific research across disciplines",
+      "AI-driven automated experimentation and laboratory automation",
+      "large language models for scientific literature analysis and research assistance"
+    ]
+  },
+  "q39": {
+    "request": "I’m interested in using AI to design proteins. Please find papers showing what research has been done.",
+    "terms": [
+      "protein design",
+      "de novo protein design",
+      "AI protein design",
+      "deep learning protein design",
+      "machine learning protein design",
+      "generative protein design",
+      "protein engineering",
+      "protein structure prediction",
+      "diffusion models protein",
+      "language models protein",
+      "inverse folding",
+      "computational protein design"
+    ],
+    "query": "I’m interested in using AI to design proteins. Please find papers showing what research has been done.",
+    "facets": [
+      "AI deep learning for protein design",
+      "generative models for de novo protein design",
+      "machine learning protein structure design and engineering",
+      "deep learning protein sequence design"
+    ]
+  },
+  "q40": {
+    "request": "When I use neural networks to solve physics problems, the training error decreases but the results still violate physical laws. I’d like papers analyzing why this happens or how to improve it.",
+    "terms": [
+      "physics-informed neural networks",
+      "PINN",
+      "physics-informed machine learning",
+      "physical constraints",
+      "physics consistency",
+      "residual loss",
+      "soft constraints",
+      "hard constraints",
+      "conservation laws",
+      "PDE residual",
+      "training error",
+      "generalization error"
+    ],
+    "query": "When I use neural networks to solve physics problems, the training error decreases but the results still violate physical laws. I’d like papers analyzing why this happens or how to improve it.",
+    "facets": [
+      "physics-informed neural networks violating physical laws despite low training error",
+      "why neural networks fail to satisfy physical constraints in physics problems",
+      "improving physical consistency and constraint satisfaction in physics-informed neural networks",
+      "analysis of physics-informed neural network training loss versus physical law violation"
+    ]
+  }
+}

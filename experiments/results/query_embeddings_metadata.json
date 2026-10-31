@@ -1,0 +1,6 @@
+{
+  "query_count": 200,
+  "encoding_seconds": 44.99819959999877,
+  "query_instruction": "Given a research question, retrieve scientific papers whose core research addresses the question.",
+  "device": "cpu"
+}
