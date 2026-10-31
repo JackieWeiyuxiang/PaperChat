@@ -92,6 +92,73 @@ Copy-Item .env.example .env
 
 服务与模型需支持代码所用的结构化输出接口及参数，配置规则见[查询生成](docs/retrieval.md#querygenerator)。以下示例还需要向量化依赖；首次创建向量化器会加载模型，远程模型尚未缓存时会下载文件。
 
+### 统一全流程接口
+
+`PaperRecommender` 将查询生成、`SD_CASCADE` 检索和 `EvidenceGroundedRecommendationGenerator` 的两阶段生成串联起来，默认检索 30 篇候选并生成最多 10 篇推荐。返回普通 Python 字典，可直接序列化为 JSON：
+
+```python
+import json
+
+from arxiv_paper_recommend import PaperRecommender
+
+with PaperRecommender() as recommender:
+    result = recommender.recommend(
+        "How can retrieval improve language model reasoning?",
+        candidate_limit=30,
+        limit=10,
+    )
+
+print(json.dumps(result, ensure_ascii=False, indent=2))
+```
+
+```text
+PaperRecommender(*, search_engine=None, generator=None)
+
+recommend(request, *, candidate_limit=30, limit=10, max_terms=12, max_queries=4)
+    -> dict[str, object]
+```
+
+| 参数 | 默认值 | 约束与含义 |
+| --- | --- | --- |
+| `request` | 必填 | 研究需求字符串，去除首尾空白后不能为空 |
+| `candidate_limit` | `30` | 1～30 的整数，进入生成阶段的检索结果上限 |
+| `limit` | `10` | 1～10 的整数，最终推荐上限 |
+| `max_terms` | `12` | 5～20 的整数，查询生成的关键词数量上限 |
+| `max_queries` | `4` | 至少为 1 的整数，查询生成的分面数量上限 |
+
+所有整数参数均拒绝布尔值；全部参数在创建资源和执行检索前校验。最终推荐数量为 `min(limit, 初筛推荐数)`，可以小于 `limit`。
+
+返回结构与字段类型如下，`abstract` 和 `score` 的 `None` 在 JSON 中对应 `null`：
+
+```text
+{
+    "request": str,
+    "recommendations": [
+        {
+            "rank": int,
+            "paper": {
+                "document_id": int,
+                "arxiv_id": str,
+                "title": str,
+                "abstract": str | None,
+                "score": float | None
+            },
+            "reason": str
+        }
+    ]
+}
+```
+
+`request` 为去除首尾空白后的需求，`recommendations` 按最终排名排列，`rank` 从 1 开始；`score` 保留检索分数，`reason` 完整保留 `[[cite]]...[[/cite]]` 原文引用标记。结果只包含最终推荐，不附带全部候选。
+
+检索为空或初筛全部不推荐时，返回 `{"request": "...", "recommendations": []}`；检索为空时不会创建推荐生成器。输入错误、检索异常、LLM 异常及引用校验失败直接抛出，不返回部分结果。
+
+同一个 `PaperRecommender` 可多次调用，按需创建并复用引擎及生成器，退出 `with` 或调用 `close()` 时关闭自建资源，重复关闭无额外效果；关闭后不能继续调用。通过构造参数注入的 `SearchEngine` 和 `EvidenceGroundedRecommendationGenerator` 由调用方管理生命周期。默认组件继续使用现有数据路径和 `.env`／环境变量配置。
+
+### 分别调用检索与生成
+
+也可继续使用底层接口，自行选择检索方法和生成器：
+
 ```python
 from arxiv_paper_recommend.recommendation import RecommendationGenerator
 from arxiv_paper_recommend.retrieval import SearchEngine

@@ -24,7 +24,8 @@ arxiv_paper_recommend/
 │   ├── documents.faiss
 │   └── example_queries.json
 └── src/arxiv_paper_recommend/
-    ├── __init__.py                 # 包说明，无命令入口
+    ├── __init__.py                 # 延迟导出 PaperRecommender，无命令入口
+    ├── pipeline.py                # SD Cascade + 证据生成的统一 Python API
     ├── config.py                  # 默认路径、按需读取 LLMSettings
     ├── common/
     │   ├── lifecycle.py
@@ -72,6 +73,7 @@ arxiv_paper_recommend/
 | `common` | 资源所有权、上下文管理、基本输入与有限权重校验 | 仅依赖标准库 |
 | `config` | 默认数据路径、构造时读取 LLM 配置 | 导入时不读取 `.env`、不创建客户端 |
 | `llm` | 共享结构化调用、按调用设置 reasoning、解析结果检查及客户端关闭 | 依赖 `common`、`config`；不包含业务提示词 |
+| `pipeline` | 校验研究需求与数量，串联 SD Cascade 检索和证据生成，返回 JSON 可序列化字典 | 通过 `SearchEngine` 和 `EvidenceGroundedRecommendationGenerator` 公开接口编排；延迟创建、复用并仅关闭自建组件，不实现排名或引用校验 |
 | `corpus` | 导入准备好的语料、分别构建标题／摘要单字段 FTS5 索引，以及 FAISS 索引 | 不执行在线检索；采集清洗和向量归档流程尚未实现 |
 | `vectorization` | 模型加载、批量编码、池化与归一化 | 不保存归档或构建索引 |
 | `retrieval.sparse / dense` | 召回和指定 ID 评分 | 不调用 LLM；查询类型和原始分数尺度由算法决定 |
@@ -109,6 +111,21 @@ vectors.npz + documents.db ── IndexBuilder ──> documents.faiss
 
 数据库构建在单一事务内导入、重建两张索引并删除旧 `documents_fts`。旧数据库需显式构建升级；在线连接保持只读。仅重建 FTS 且论文内容、ID 不变时无需重建 FAISS。
 
+统一入口 `PaperRecommender.recommend()` 使用已有数据库和索引，执行以下在线流程：
+
+```text
+研究请求 ── PaperRecommender（先校验全部参数）
+              ├── SearchEngine.search(method="SD_CASCADE", limit=candidate_limit)
+              │      └── 查询生成 → BM25 召回 → 默认 FC 分数重排
+              ├── EvidenceGroundedRecommendationGenerator.generate(limit=limit)
+              │      └── 逐篇判断与引用校验 → 集中筛选排序
+              └── dict：request + recommendations（rank / paper / reason）
+```
+
+统一入口默认最多向生成阶段提供 30 篇检索结果、返回最多 10 篇推荐，数量参数分别允许 1～30 与 1～10。检索为空时跳过推荐生成器的创建；初筛全部不推荐时同样返回空推荐列表。输出转换为普通字典及列表，保留论文信息、检索分数和理由中的引用标记；异常沿用底层行为直接传播。详细参数与使用示例见 [README](README.md#统一全流程接口)。
+
+底层检索与生成接口仍可分别调用：
+
 ```text
 研究请求 ── SearchEngine ── QueryGenerator ── terms / recall_queries / query
                     └── 方法分派
@@ -136,7 +153,7 @@ vectors.npz + documents.db ── IndexBuilder ──> documents.faiss
                     list[PaperRecommendation]，数量 min(limit, 初筛推荐数)
 ```
 
-下游生成由调用方显式衔接。两种实现均返回统一推荐记录，`reason` 使用 `[[cite]]原文片段[[/cite]]` 标注 1～2 处标题或摘要中的精确连续原文。初筛推荐数为 0 时跳过排序；否则第二阶段只返回有序 ID，理由沿用初筛结果。精确匹配不保证理由在语义上被证据支持，当前结果均不补充作者、日期、URL 或完整引用元数据。
+调用方可自行衔接下游生成，也可使用统一入口自动衔接 SD Cascade 与证据生成。两种生成器均返回统一推荐记录，`reason` 使用 `[[cite]]原文片段[[/cite]]` 标注 1～2 处标题或摘要中的精确连续原文。初筛推荐数为 0 时跳过排序；否则第二阶段只返回有序 ID，理由沿用初筛结果。精确匹配不保证理由在语义上被证据支持，当前结果均不补充作者、日期、URL 或完整引用元数据。
 
 [历史检索实验材料](experiments/README.md)保留 BM25、HNSW、HRRF 与旧 FC-HRRF 的输入、结果和报告，位于 `experiments/results/`；旧实验脚本已删除，当前没有 HPRF 专用检索实验入口。历史材料属于旧版算法，不能作为 HPRF 的效果或延迟结论；主题代理标签仅用于主题级比较，不能替代人工相关性评估。
 
@@ -146,6 +163,6 @@ vectors.npz + documents.db ── IndexBuilder ──> documents.faiss
 
 - 存储层 `documents.id`、两张 FTS5 索引的 rowid、FAISS ID 与 `SearchResult.document_id` 对应；存储层 `doc_id` 映射为 `SearchResult.arxiv_id`，保留论文版本号。
 - 仅关闭自建资源；注入组件由调用方管理。关闭幂等，关闭后的对象不能继续操作。
-- 包级导入为业务 API 推荐入口；检索根包延迟导出引擎，推荐根包延迟导出共同基类与基础生成器。导入 `SearchResult` 或统一推荐模型 `PaperRecommendation` 不加载 FAISS 或 LLM 客户端模块；`recommendation.innovation` 当前直接导出模型与生成器，会加载共享 LLM 模块。
+- 包级导入为业务 API 推荐入口；项目根包延迟导出 `PaperRecommender`，仅导入根包不会加载检索或 LLM 模块；检索根包延迟导出引擎，推荐根包延迟导出共同基类与基础生成器。导入 `SearchResult` 或统一推荐模型 `PaperRecommendation` 不加载 FAISS 或 LLM 客户端模块；`recommendation.innovation` 当前直接导出模型与生成器，会加载共享 LLM 模块。
 - PyTorch、Transformers 仅在实例化向量化器时导入。模型和索引跨查询复用。
 - 文件使用 snake_case，类使用 PascalCase；Python 注释与文档字符串以清晰英文为主，使用文档以中文为主；编辑后执行 `ruff format`。
