@@ -2,6 +2,7 @@
 
 from collections.abc import Sequence
 from dataclasses import replace
+from math import ceil, sqrt
 
 from arxiv_paper_recommend.common.validation import (
 	normalize_queries,
@@ -16,7 +17,6 @@ from ..constants import DEFAULT_RESULT_LIMIT
 from ..dense import MultiQueryHNSWRetriever
 from ..search_result import SearchResult
 from ._facet_coverage import (
-	DEFAULT_CANDIDATE_LIMIT,
 	DEFAULT_COVERAGE_WEIGHT,
 	raw_coverage_scores,
 )
@@ -36,7 +36,8 @@ class FCHNSWRetriever(MultiQueryHNSWRetriever):
 	) -> list[SearchResult]:
 		"""Recall per facet, score the full union, and return at most limit results.
 
-		Candidate depth defaults to max(50, limit), without a hybrid output cap.
+		Candidate depth defaults to ceil(limit * sqrt(deduplicated facet count)).
+		An explicit candidate_limit overrides this depth, without a hybrid cap.
 		None uses the main query as the only facet; an empty sequence returns [].
 		FC blends raw query similarity with geometric mean nonnegative facets.
 		Ties are resolved by ascending document ID; unavailable scores go last.
@@ -44,13 +45,16 @@ class FCHNSWRetriever(MultiQueryHNSWRetriever):
 		self._ensure_open()
 		validate_text(query, "Query")
 		validate_integer(limit, "Result limit")
+		facets = (
+			[query] if recall_queries is None else normalize_queries(recall_queries)
+		)
 		if candidate_limit is None:
-			candidate_limit = max(DEFAULT_CANDIDATE_LIMIT, limit)
+			candidate_limit = ceil(limit * sqrt(max(1, len(facets))))
 		validate_integer(candidate_limit, "Candidate limit", minimum=limit)
 		return self.recall(
 			query,
 			limit=candidate_limit,
-			recall_queries=recall_queries,
+			recall_queries=facets,
 			coverage_weight=coverage_weight,
 		)[:limit]
 

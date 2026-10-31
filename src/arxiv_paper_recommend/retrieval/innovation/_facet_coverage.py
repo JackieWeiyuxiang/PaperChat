@@ -4,7 +4,6 @@ from math import exp, fsum, log
 
 from .._scoring import DenseScoreCache
 
-DEFAULT_CANDIDATE_LIMIT = 50
 DEFAULT_COVERAGE_WEIGHT = 0.5
 
 

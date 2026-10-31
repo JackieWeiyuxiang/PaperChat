@@ -2,13 +2,13 @@
 
 from collections.abc import Sequence
 from dataclasses import replace
+from math import ceil, sqrt
 
 from .._ranking import rank_ids
 from .._scoring import DenseScoreCache
 from ..constants import DEFAULT_RESULT_LIMIT
 from ..search_result import SearchResult
 from .base import HybridRetriever
-from .constants import SPARSE_CANDIDATE_MULTIPLIER
 
 
 class SDCascadeRetriever(HybridRetriever):
@@ -23,11 +23,14 @@ class SDCascadeRetriever(HybridRetriever):
 		title_weight: float | None = None,
 		recall_queries: Sequence[str] | None = None,
 	) -> list[SearchResult]:
-		"""Recall limit * 60 sparse candidates, select per query, then rerank."""
+		"""Recall ceil(sqrt(limit * corpus size)) candidates, select, then rerank."""
 		query_texts = self._validate_inputs(query, limit, recall_queries)
+		candidate_limit = max(
+			1, ceil(sqrt(limit * self.sparse_retriever.count_documents()))
+		)
 		sparse_results = self.sparse_retriever.search(
 			terms,
-			limit=limit * SPARSE_CANDIDATE_MULTIPLIER,
+			limit=candidate_limit,
 			title_weight=title_weight,
 		)
 		candidates = {result.document_id: result for result in sparse_results}

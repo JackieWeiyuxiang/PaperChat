@@ -13,8 +13,9 @@
 当前没有 HPRF 专用检索实验脚本，也未迁移旧实验的自动调参流程。
 
 独立 FC-HNSW 现为引擎和混合检索的默认 dense 组件，省略引擎 `method` 时使用
-`FC_HNSW`，其默认每分面候选深度为 `max(50, limit)`。显式 `HNSW`、
-`MULTI_QUERY_HNSW` 保留原算法；历史四方法实验显式注入原 `MultiQueryHNSWRetriever`。
+`FC_HNSW`。它与 `MULTI_QUERY_HNSW` 的搜索默认每分面候选深度均为
+`ceil(limit * sqrt(m))`，其中 `m` 为去重后的分面数；单查询 `HNSW` 对应 `m=1`。
+历史四方法实验使用当时的原多查询检索器及候选预算，不能代表当前预算下的效果或延迟。
 独立 FC-HNSW 及新默认混合候选尚未重新评估，已有报告不能
 作为其效果或延迟结论。
 

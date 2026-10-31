@@ -55,11 +55,14 @@ BM25 越小越相关；内积、FC、RRF 和语义加权 RRF 越大越相关，�
 
 ```text
 BM25Retriever(database_path=DATABASE_PATH)
+count_documents() -> int
 search(query: list[str], limit=20)
 score(query: list[str], document_ids: list[int])
 ```
 
 连接以只读模式打开，要求已有 `documents_title_fts` 和 `documents_abstract_fts` 单字段索引；旧数据库先按[数据构建说明](data.md#构建数据库)升级，检索时不修改索引。关键词规范化空白并转为小写，按首次出现顺序去重，忽略空白项；处理后需有 1～20 项。每项必须含 FTS5 可索引字符，短语与双引号会正确转义，使用 OR 匹配。
+
+`count_documents()` 返回当前数据库 `documents` 表的文档总数，与关键词匹配数量无关；`TitleWeightedBM25Retriever` 继承此方法。
 
 标题与摘要分别使用 `porter` 分词器和各自索引的字段长度、平均长度及 IDF 计算 BM25，再以 `1:1` 相加。保留 SQLite BM25 的负分方向，分数越小越相关；未匹配字段贡献 `0.0`。
 
@@ -119,7 +122,7 @@ raw_recall(query: str, limit=20, *, recall_queries: Sequence[str] | None = None)
 `recall_queries` 使用列表、元组等字符串序列，拒绝裸字符串和集合；元素必须为非空白字符串，按首次出现顺序去重。
 
 - `None`：沿用父类单查询召回。
-- 非空序列：每条查询最多召回 `limit` 篇，合并并去重后按主查询 `query` 精确评分，返回前 `limit` 篇。
+- 非空序列：令 `m` 为去重后的分面数，每条查询最多召回 `ceil(limit * sqrt(m))` 篇，合并并去重后按主查询 `query` 精确评分，返回前 `limit` 篇。实际召回深度不超过索引文档数。
 - 空序列：返回空列表，不回退主查询。
 
 多查询在类内批量编码和召回；无有效候选时直接返回空列表。最终分数为主查询精确内积。
@@ -127,7 +130,8 @@ raw_recall(query: str, limit=20, *, recall_queries: Sequence[str] | None = None)
 `recall()` 使用相同的输入校验、批量召回和去重逻辑，但返回完整召回并集，不将合并结果
 截取为 `limit` 篇。这里的 `limit` 仅限制每条召回查询的邻居数量；所有候选按主查询的
 精确内积降序、文档 ID 升序返回，分数为主查询精确内积。`recall_queries=None` 使用
-主查询作为唯一召回查询，显式空序列仍返回空列表。现有 `search()` 的结果数量和行为保持不变。
+主查询作为唯一召回查询，显式空序列仍返回空列表。`recall()` 与 `raw_recall()` 的
+`limit` 是显式的每分面深度，不额外乘以分面数的平方根。
 `recall()` 委托 `raw_recall()`，底层多查询召回使用 `raw_score()`，使显式调用原类搜索
 实现时仍获得原始内积。`raw_recall()` 也供 FC 子类及混合检索获取完整原始召回并集。
 
@@ -157,9 +161,12 @@ recall(
 ```
 
 `search()` 每条召回查询取最多 `candidate_limit` 篇，对完整去重并集计算 FC，
-按 FC 降序排列后截取 `limit` 篇。`candidate_limit` 默认 `max(50, limit)`，
+按 FC 降序排列后截取 `limit` 篇。令 `m` 为去重后的分面数，`candidate_limit` 默认
+`ceil(limit * sqrt(m))`，向上取整；未提供分面时 `m=1`，空分面序列返回空列表。
+显式传入的 `candidate_limit` 直接覆盖每分面深度，不额外乘以平方根，
 要求为不小于 `limit` 的正整数；独立 dense 的 `limit` 和 `candidate_limit` 均无 100 条上限。
-`recall()` 使用同一评分流程，但其 `limit` 仅限制每条分面的召回数量，返回完整去重并集。
+实际召回深度不超过索引文档数。`recall()` 使用同一评分流程，但其 `limit` 直接限制
+每条分面的召回数量，不额外乘以平方根，返回完整去重并集。
 `score()` 为指定 ID 返回相同公式的分数，键按 ID 首次出现顺序保留，不执行召回。
 
 `query` 是 score query，`recall_queries` 是 fc queries。令 `q(d)` 为主查询精确内积，
@@ -205,9 +212,9 @@ search(
 默认创建 `TitleWeightedBM25Retriever` 和 `FCHNSWRetriever`，也可注入复用实例，包括原 `MultiQueryHNSWRetriever`。`limit` 为 1～100。`title_weight` 同时用于稀疏召回和 HRRF、HPRF 补评分，省略时为普通 BM25。
 
 HRRF、HPRF、SemanticRRF 默认用 FC-HNSW 的 `search()` 选择 dense 候选，每分面深度为
-`max(50, limit)`，保留 `limit` 篇；后续按各自算法重排及融合。原始内积统一通过
+`ceil(limit * sqrt(m))`（`m` 为去重后的分面数），保留 `limit` 篇；后续按各自算法重排及融合。原始内积统一通过
 `raw_score()` 获取并在单次搜索内缓存，不把 FC 分数用作内积。显式注入组件覆盖默认实现，
-因此默认切换会改变未注入 dense 的混合检索候选；旧实验显式注入原多查询检索器，保留原基线。
+因此默认组件和分面预算调整均可能改变混合检索候选；旧实验采用当时的多查询实现与预算。
 
 `query` 用于最终语义重排；`recall_queries` 指定稠密召回或候选内筛选查询，校验与多查询 HNSW 一致。`None` 使用主查询；空序列下 HRRF、HPRF、SemanticRRF 仅保留稀疏候选，SD Cascade 返回空列表。所有方法候选不足时返回较少结果。
 
@@ -255,7 +262,7 @@ score(d) = RRF(d) × (cos(query, d) + 1)
 
 ### SDCascadeRetriever
 
-Sparse-to-Dense Cascade，稀疏到稠密级联检索。BM25 召回最多 `limit × 60` 篇，在这些候选内按每条召回查询的内积选取前 `limit` 篇并合并，再按主查询内积重排。
+Sparse-to-Dense Cascade，稀疏到稠密级联检索。一阶段 BM25 召回最多 `ceil(sqrt(limit × N))` 篇，即 `limit` 与数据库文档总量的几何平均数向上取整；`N` 通过稀疏检索器的 `count_documents()` 获取，为整个 `documents` 表的文档数，与关键词匹配数量及向量索引大小无关。在这些候选内按每条召回查询的内积选取前 `limit` 篇并合并，再按主查询内积重排。
 
 缺少向量的候选不参与语义选择；本方法不执行全库 HNSW 搜索，也不计算 RRF。无稀疏候选、没有召回查询或没有可评分候选时返回空列表。
 

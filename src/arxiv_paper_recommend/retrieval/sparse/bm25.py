@@ -26,6 +26,11 @@ class BM25Retriever(Retriever[list[str]]):
 		self.conn = connect(database_uri, uri=True)
 		self._resources.callback(self.conn.close)
 
+	def count_documents(self) -> int:
+		"""Return the total document count, independent of keyword matches."""
+		self._ensure_open()
+		return self.conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+
 	def search(
 		self, query: list[str], limit: int = DEFAULT_RESULT_LIMIT
 	) -> list[SearchResult]:

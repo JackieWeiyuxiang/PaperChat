@@ -2,6 +2,15 @@
 
 本文记录不兼容变更。当前用法见[检索 API](retrieval.md)、[推荐生成](recommendation.md)和[数据与构建](data.md)。除明确列出的兼容名称外，旧名称不提供别名或转发模块。
 
+## 分面搜索深度按分面数调整（2026-10-31）
+
+`MultiQueryHNSWRetriever.search()` 与 `FCHNSWRetriever.search()` 的默认每分面召回深度
+统一为 `ceil(limit * sqrt(m))`，其中 `m` 是去重后的分面数，最终仍最多返回 `limit` 篇。
+单查询 HNSW 对应 `m=1`，空分面序列仍返回空列表，实际深度不超过索引文档数。
+FC-HNSW 显式指定的 `candidate_limit` 仍直接作为每分面深度；`recall()`、`raw_recall()`
+继续使用显式传入的每分面 `limit`，不再次缩放。混合检索默认复用新的搜索预算。
+无需重建数据库或向量索引，本次未执行测试或实验。
+
 ## HRRF 支持三层权重（2026-10-31）
 
 `HRRFRetriever.search()` 和 `SearchEngine.search(..., method="HRRF")` 现在接受与 HPRF
@@ -43,7 +52,7 @@ HRRF 的加权接口及分数尺度见上节，无需重建数据库或向量索
 `raw_score()` 和 `raw_recall()`。`search()`、`score()`、`recall()` 统一使用原始分数公式：
 `coverage_weight × GM(max(0, 分面内积)) + (1 − coverage_weight) × 主查询内积`。
 分面等权，任一非正或缺失分面使覆盖度为零，主查询保留正负值。默认覆盖权重为 `0.5`，
-搜索每分面候选深度默认 `max(50, limit)`；独立 FC-HNSW 不受混合检索的 100 条上限限制。
+搜索每分面候选深度默认 `ceil(limit * sqrt(m))`（`m` 为去重后的分面数）；独立 FC-HNSW 不受混合检索的 100 条上限限制。
 
 `score()` 新增仅限关键字参数 `recall_queries=None`、`coverage_weight=0.5`；
 `recall()` 新增 `coverage_weight=0.5`，返回按 FC 排序的完整召回并集。
@@ -52,13 +61,13 @@ HRRF 的加权接口及分数尺度见上节，无需重建数据库或向量索
 
 `SearchEngine.search(request, method="FC_HNSW", ...)` 的 `method` 现在可以省略；
 省略时生成分面查询和主查询，执行 FC-HNSW。显式 `HNSW`、`MULTI_QUERY_HNSW` 的
-原算法、预算及分数保持不变。
+评分仍使用原始内积，多查询搜索的分面预算见上节。
 
 引擎和混合检索默认创建 `FCHNSWRetriever`。HRRF、HPRF、SemanticRRF 的默认 dense 候选
 因此可能变化，后续重排及融合规则不变。其原始内积通过 `raw_score()` 获取，不能复用 FC
 分数。SD Cascade 仍在稀疏候选内评分。旧 FC-HRRF 混合实现已移除，替代接口见上节。
 
-原类和导入路径保留，显式注入组件继续覆盖默认实现。需要混合检索的旧 dense 候选行为时，
+原类和导入路径保留，显式注入组件继续覆盖默认实现。需要按主查询内积选择 dense 候选时，
 显式注入 `MultiQueryHNSWRetriever`；需要默认 FC 搜索时，使用新类或省略注入。
 历史检索实验显式注入原多查询检索器，保存的结果仍属于旧基线。本次不重跑实验、不更新历史报告，
 不需要重建数据库或向量索引。

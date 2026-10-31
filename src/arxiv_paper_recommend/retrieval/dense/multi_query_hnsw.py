@@ -1,6 +1,7 @@
 """Multi-query HNSW recall and exact reranking with internal batching."""
 
 from collections.abc import Sequence
+from math import ceil, sqrt
 
 from arxiv_paper_recommend.common.validation import (
 	normalize_queries,
@@ -26,7 +27,8 @@ class MultiQueryHNSWRetriever(HNSWRetriever):
 	) -> list[SearchResult]:
 		"""Rerank multi-query candidates by query, or search once when omitted.
 
-		Each division recalls at most limit documents. An empty sequence returns [];
+		Each facet recalls at most ceil(limit * sqrt(facet count)) documents.
+		Facet count is deduplicated. An empty sequence returns [];
 		final scores are exact inner products, with ties resolved by document ID.
 		Neighbor IDs are deduplicated before loading documents; result objects
 		are created only for the final selection.
@@ -73,7 +75,7 @@ class MultiQueryHNSWRetriever(HNSWRetriever):
 		recall_queries: Sequence[str] | None,
 		result_limit: int | None,
 	) -> list[SearchResult]:
-		"""Share batched recall while constructing only the requested results."""
+		"""Scale search depth by facet count; raw recall keeps the supplied depth."""
 		self._ensure_open()
 		validate_text(query, "Query")
 		validate_integer(limit, "Result limit")
@@ -83,8 +85,11 @@ class MultiQueryHNSWRetriever(HNSWRetriever):
 		if not queries or self.index.ntotal == 0:
 			return []
 
+		recall_limit = (
+			ceil(limit * sqrt(len(queries))) if result_limit is not None else limit
+		)
 		_, ids = self.index.search(
-			self._prepare_queries(queries), min(limit, self.index.ntotal)
+			self._prepare_queries(queries), min(recall_limit, self.index.ntotal)
 		)
 		candidate_ids = list(
 			dict.fromkeys(
