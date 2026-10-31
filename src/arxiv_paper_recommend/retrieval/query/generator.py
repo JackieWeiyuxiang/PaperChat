@@ -54,7 +54,7 @@ def _result_model[Result: BaseModel](
 
 
 class QueryGenerator(StructuredGenerator):
-	"""Reuse one client; each generation method makes one structured LLM call."""
+	"""Reuse one client; each generation method has an independent retry budget."""
 
 	terms_prompt_template: str = """
         Given a user's research request, generate 1 to {max_terms} English match terms for retrieving academic papers by title and abstract.
@@ -89,14 +89,19 @@ class QueryGenerator(StructuredGenerator):
 		self._ensure_open()
 		validate_integer(max_terms, "max_terms", minimum=MIN_GENERATED_TERM_COUNT)
 		request = validate_text(request, "Research request", strip=True)
+
+		def validate_terms(result: TermsGenerationResult) -> TermsGenerationResult:
+			for term in result.terms:
+				if not term.strip():
+					raise RuntimeError("Generation returned an empty term.")
+			return result
+
 		result = self._generate(
 			request,
 			self.terms_prompt_template.format(max_terms=max_terms),
 			_result_model(TermsGenerationResult, "terms", max_terms),
+			result_validator=validate_terms,
 		)
-		for term in result.terms:
-			if not term.strip():
-				raise RuntimeError("Generation returned an empty term.")
 		return result.terms
 
 	def generate_queries(
@@ -111,12 +116,19 @@ class QueryGenerator(StructuredGenerator):
 			if max_queries == 1
 			else self.queries_prompt_template.format(max_queries=max_queries)
 		)
+
+		def validate_queries(
+			result: QueriesGenerationResult,
+		) -> QueriesGenerationResult:
+			for query in result.queries:
+				if not query.strip():
+					raise RuntimeError("Generation returned an empty query.")
+			return result
+
 		result = self._generate(
 			request,
 			instructions,
 			_result_model(QueriesGenerationResult, "queries", max_queries),
+			result_validator=validate_queries,
 		)
-		for query in result.queries:
-			if not query.strip():
-				raise RuntimeError("Generation returned an empty query.")
 		return result.queries

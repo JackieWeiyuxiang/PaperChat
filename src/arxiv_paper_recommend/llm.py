@@ -1,14 +1,17 @@
 """Shared structured generation and explicit LLM client ownership."""
 
+import time
+from collections.abc import Callable
+from json import JSONDecodeError
 from typing import Literal
 
-from openai import OpenAI, omit
+from openai import APIResponseValidationError, OpenAI, OpenAIError, omit
 from pydantic import BaseModel, ValidationError
 
 from .common.lifecycle import ManagedResource
 from .config import LLMSettings
 
-MAX_STRUCTURED_ATTEMPTS = 3
+MAX_LLM_RETRIES = 3
 
 
 class StructuredGenerator(ManagedResource):
@@ -29,6 +32,7 @@ class StructuredGenerator(ManagedResource):
 			else OpenAI(
 				api_key=settings.api_key,
 				base_url=settings.base_url,
+				max_retries=0,
 			)
 		)
 		if client is None:
@@ -41,13 +45,15 @@ class StructuredGenerator(ManagedResource):
 		result_model: type[Result],
 		*,
 		reasoning_effort: Literal["none", "high"] = "none",
+		result_validator: Callable[[Result], Result] | None = None,
 	) -> Result:
-		"""Require a parsed response, omitting temperature when thinking is enabled."""
+		"""Share one retry budget across API, parsing, and result validation failures."""
 		self._ensure_open()
+		client = self.client.with_options(max_retries=0)
 		current_instructions = instructions
-		for attempt in range(MAX_STRUCTURED_ATTEMPTS):
+		for attempt in range(MAX_LLM_RETRIES + 1):
 			try:
-				response = self.client.responses.parse(
+				response = client.responses.parse(
 					model=self.model,
 					reasoning={"effort": reasoning_effort},
 					temperature=0 if reasoning_effort == "none" else omit,
@@ -55,21 +61,48 @@ class StructuredGenerator(ManagedResource):
 					input=request,
 					text_format=result_model,
 				)
-				break
-			except ValidationError as exc:
-				if attempt == MAX_STRUCTURED_ATTEMPTS - 1:
+			except (
+				ValidationError,
+				JSONDecodeError,
+				APIResponseValidationError,
+			) as exc:
+				if attempt == MAX_LLM_RETRIES:
 					raise
-				issues = [
-					{"field": error["loc"], "error": error["msg"]}
-					for error in exc.errors(include_input=False, include_url=False)
+				current_instructions = self._validation_instructions(instructions, exc)
+				continue
+			except OpenAIError:
+				if attempt == MAX_LLM_RETRIES:
+					raise
+				time.sleep(2**attempt)
+				continue
+
+			try:
+				parsed = response.output_parsed
+				if parsed is None:
+					raise RuntimeError("Generation did not return a structured result.")
+				return parsed if result_validator is None else result_validator(parsed)
+			except (ValidationError, RuntimeError) as exc:
+				if attempt == MAX_LLM_RETRIES:
+					raise
+				current_instructions = self._validation_instructions(instructions, exc)
+
+	@staticmethod
+	def _validation_instructions(instructions: str, error: Exception) -> str:
+		"""Replace prior feedback while retaining all original response constraints."""
+		issues = (
+			str(
+				[
+					{"field": issue["loc"], "error": issue["msg"]}
+					for issue in error.errors(include_input=False, include_url=False)
 				]
-				current_instructions = (
-					instructions
-					+ "\nThe previous response failed validation: "
-					+ str(issues)
-					+ "\nReturn only the required data fields, not the JSON Schema. "
-					"Do not include schema keywords such as additionalProperties."
-				)
-		if response.output_parsed is None:
-			raise RuntimeError("Generation did not return a structured result.")
-		return response.output_parsed
+			)
+			if isinstance(error, ValidationError)
+			else str(error)
+		)
+		return (
+			instructions
+			+ f"\nThe previous response failed validation: {issues}\n"
+			+ "Regenerate the response to fix this error while following all original requirements. "
+			"Return only the required data fields, not the JSON Schema. "
+			"Do not include schema keywords such as additionalProperties."
+		)

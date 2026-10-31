@@ -16,7 +16,6 @@ from .models import PaperRecommendation
 MAX_RECOMMENDATIONS = 10
 MAX_GENERATION_CANDIDATES = 30
 MAX_SCREENING_WORKERS = 5
-MAX_ASSESSMENT_ATTEMPTS = 3
 
 # Recognize incomplete markers too, so malformed prefixes cannot evade validation.
 _CITATION_MARKER = re.compile(r"\[\[/?cite(?:\]\])?")
@@ -118,25 +117,30 @@ class BaseRecommendationGenerator(StructuredGenerator, ABC):
 				for paper, reason in approved.values()
 			],
 		}
+
+		def validate_ranking(parsed: _RankingResponse) -> _RankingResponse:
+			if len(parsed.doc_ids) != target:
+				raise RuntimeError(
+					f"Ranking returned {len(parsed.doc_ids)} papers; expected {target}."
+				)
+			seen_doc_ids: set[str] = set()
+			for doc_id in parsed.doc_ids:
+				if doc_id not in approved:
+					raise RuntimeError(
+						f"Ranking returned a paper outside the approved candidates: {doc_id!r}."
+					)
+				if doc_id in seen_doc_ids:
+					raise RuntimeError(f"Ranking returned duplicate paper {doc_id!r}.")
+				seen_doc_ids.add(doc_id)
+			return parsed
+
 		parsed = self._generate(
 			json.dumps(payload, ensure_ascii=False),
 			self.ranking_instructions,
 			_RankingResponse,
 			reasoning_effort="high",
+			result_validator=validate_ranking,
 		)
-		if len(parsed.doc_ids) != target:
-			raise RuntimeError(
-				f"Ranking returned {len(parsed.doc_ids)} papers; expected {target}."
-			)
-		seen_doc_ids: set[str] = set()
-		for doc_id in parsed.doc_ids:
-			if doc_id not in approved:
-				raise RuntimeError(
-					f"Ranking returned a paper outside the approved candidates: {doc_id!r}."
-				)
-			if doc_id in seen_doc_ids:
-				raise RuntimeError(f"Ranking returned duplicate paper {doc_id!r}.")
-			seen_doc_ids.add(doc_id)
 
 		return [
 			PaperRecommendation(
@@ -161,27 +165,18 @@ class BaseRecommendationGenerator(StructuredGenerator, ABC):
 			ensure_ascii=False,
 		)
 		instructions = self.assessment_instructions + self.instructions
-		current_instructions = instructions
-		for attempt in range(MAX_ASSESSMENT_ATTEMPTS):
-			parsed = self._generate(
-				payload,
-				current_instructions,
-				_PaperAssessment,
-				reasoning_effort="none",
-			)
-			try:
-				parsed.reason = self._validate_reason(parsed.reason, paper)
-				break
-			except RuntimeError as exc:
-				if attempt == MAX_ASSESSMENT_ATTEMPTS - 1:
-					raise
-				current_instructions = (
-					instructions
-					+ f"\nCitation validation failed: {exc}\n"
-					+ "- Regenerate the assessment with 1 to 2 exact spans from the supplied title or abstract.\n"
-					"- Preserve every character, including whitespace and punctuation."
-				)
-		return parsed
+
+		def validate_assessment(parsed: _PaperAssessment) -> _PaperAssessment:
+			parsed.reason = self._validate_reason(parsed.reason, paper)
+			return parsed
+
+		return self._generate(
+			payload,
+			instructions,
+			_PaperAssessment,
+			reasoning_effort="none",
+			result_validator=validate_assessment,
+		)
 
 	@staticmethod
 	def _validate_reason(reason: str, paper: SearchResult) -> str:

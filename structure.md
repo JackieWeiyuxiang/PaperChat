@@ -72,7 +72,7 @@ arxiv_paper_recommend/
 | --- | --- | --- |
 | `common` | 资源所有权、上下文管理、基本输入与有限权重校验 | 仅依赖标准库 |
 | `config` | 默认数据路径、构造时读取 LLM 配置 | 导入时不读取 `.env`、不创建客户端 |
-| `llm` | 共享结构化调用、按调用设置 reasoning、格式校验失败时最多调用三次纠正、解析结果检查及客户端关闭 | 依赖 `common`、`config`；不包含业务提示词 |
+| `llm` | 共享结构化调用、按调用设置 reasoning、统一网络/API、解析与业务校验回调的重试预算（最多重试 3 次、共 4 次请求）、错误反馈与客户端关闭 | 依赖 `common`、`config`；关闭 SDK 重试，不包含业务提示词 |
 | `pipeline` | 校验研究需求与数量，串联 SD Cascade 检索和证据生成，返回 JSON 可序列化字典 | 通过 `SearchEngine` 和 `EvidenceGroundedRecommendationGenerator` 公开接口编排；延迟创建、复用并仅关闭自建组件，不实现排名或引用校验 |
 | `corpus` | 导入准备好的语料、分别构建标题／摘要单字段 FTS5 索引，以及 FAISS 索引 | 不执行在线检索；采集清洗和向量归档流程尚未实现 |
 | `vectorization` | 模型加载、批量编码、池化与归一化 | 不保存归档或构建索引 |
@@ -82,7 +82,7 @@ arxiv_paper_recommend/
 | `retrieval.query` | 从研究请求生成关键词及语义查询 | 依赖共享 LLM 层，不执行检索或向量化 |
 | `retrieval.search_engine` | 注册方法、生成输入、延迟创建和复用组件 | 不承担算法内部排名逻辑 |
 | `recommendation.models` | 统一推荐记录及原始检索结果关联，理由内含引用标记 | 不依赖 LLM 模块 |
-| `recommendation.base` | 共同抽象接口、前 30 条去重、最多 5 个并发逐篇判断、精确引用校验及单篇最多三次纠正、集中筛选排序 | 依赖共享 LLM 层及公开检索结果模型；逐篇判断关闭 thinking 并设置 temperature=0，集中排序使用 thinking=high，不访问检索内部工具 |
+| `recommendation.base` | 共同抽象接口、前 30 条去重、最多 5 个并发逐篇判断、精确引用与排序校验回调、集中筛选排序 | 依赖共享 LLM 层的统一重试预算及公开检索结果模型，不实现额外重试；逐篇判断关闭 thinking 并设置 temperature=0，集中排序使用 thinking=high，不访问检索内部工具 |
 | `recommendation.generation` | 基于完整标题和摘要解释相关性的判断提示词 | 实现共同基类，统一返回 `PaperRecommendation` |
 | `recommendation.innovation.models` | `EvidenceGroundedRecommendation` 作为统一结果模型的别名 | 模型定义不依赖 LLM；经 `innovation` 包导入时会同时加载生成器 |
 | `recommendation.innovation.evidence_generator` | 要求理由具体主张仅由标注原文支持的判断提示词 | 实现共同基类，复用相同的流程与校验；不自动验证语义支持性 |
