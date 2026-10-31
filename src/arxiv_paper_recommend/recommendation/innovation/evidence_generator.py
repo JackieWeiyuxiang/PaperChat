@@ -7,12 +7,10 @@ class EvidenceGroundedRecommendationGenerator(BaseRecommendationGenerator):
 	"""Require paper-specific claims to be supported by the marked citations."""
 
 	instructions = """
-First identify one or two informative, continuous source spans and place them in
-the required citation markers. Base your explanation on these marked spans alone.
-Every paper-specific method, result, capability, or detail in reason must be
-explicitly supported by the cited text. Do not rely on uncited parts of the title
-or abstract to add paper-specific claims. Choose longer spans when needed to
-support the explanation. If the source cannot support a recommendation, return
-recommended=false, cite the available scope, and explain the missing support
-without claiming unmentioned methods or capabilities are absent from the paper.
-"""
+        Explain the assessment using marked source spans alone.
+
+        - Select 1 to 2 informative spans before writing reason; use longer spans when needed.
+        - **reason**: every paper-specific method, result, capability, or detail must be explicitly supported by the cited text, without claims from uncited content.
+        - If the source cannot support a recommendation, return recommended=false, cite the available scope, and explain the missing support.
+
+    """

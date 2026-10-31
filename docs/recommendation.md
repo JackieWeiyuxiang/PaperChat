@@ -37,7 +37,7 @@ generate(request: str, papers: list[SearchResult], limit=10) -> list[PaperRecomm
 
 第一阶段全部完成后，仅将 `recommended=True` 的论文及其理由传给第二阶段。如果推荐数为 0，直接返回空列表；否则调用一次 API，从这些论文中选择并排序恰好 `min(limit, 初筛推荐数)` 篇。推荐数少于或等于 `limit` 时仍调用 API 对全部推荐项排序，不把初筛不推荐项交给第二阶段。
 
-第二阶段结构化输出只含 `doc_ids` 有序列表。最终理由直接沿用第一阶段结果，避免排序时重新生成或修改引用。对于 N 个去重候选：无推荐项时调用 N 次 API；存在推荐项时调用 N+1 次。30 个不同候选最多调用 31 次，不含 SDK 既有重试。
+第二阶段结构化输出只含 `doc_ids` 有序列表。最终理由直接沿用第一阶段结果，避免排序时重新生成或修改引用。对于 N 个去重候选：正常情况下无推荐项时调用 N 次 API；存在推荐项时调用 N+1 次。30 个不同候选正常情况下最多调用 31 次，不含引用纠正、结构校验纠正及 SDK 既有重试。每篇判断因引用错误最多尝试三次，每次结构化生成因格式错误最多调用三次；两类纠正嵌套时单篇最多九次调用，不含 SDK 重试。
 
 ## 统一结果与引用格式
 
@@ -63,7 +63,7 @@ generate(request: str, papers: list[SearchResult], limit=10) -> list[PaperRecomm
 
 ## Thinking 与错误处理
 
-所有推荐阶段请求均使用 `OpenAI.responses.parse` 和 Pydantic `text_format`，显式传入 `reasoning={"effort": "high"}`，不发送 `temperature`。服务与模型需支持 thinking 和结构化输出组合。查询生成继续使用 `reasoning={"effort": "none"}` 与 `temperature=0`。
+所有推荐阶段请求均使用 `OpenAI.responses.parse` 和 Pydantic `text_format`。第一阶段逐篇判断（包括引用与结构校验纠正）使用 `reasoning={"effort": "none"}` 与 `temperature=0`；第二阶段集中筛选排序使用 `reasoning={"effort": "high"}`，不发送 `temperature`。服务与模型需支持上述配置与结构化输出组合。查询生成继续使用 `reasoning={"effort": "none"}` 与 `temperature=0`。
 
 程序检查全部逐篇响应，包括不推荐的论文：
 
@@ -71,7 +71,7 @@ generate(request: str, papers: list[SearchResult], limit=10) -> list[PaperRecomm
 - 引用标记必须正确配对、不嵌套，数量为 1～2 处。
 - 每处引用不得为空白，且必须是对应标题或摘要中的精确连续子字符串。
 
-集中排序还会检查返回数量准确、ID 全部来自初筛推荐集合且没有重复。没有结构化结果或上述业务校验失败时抛出 `RuntimeError`，不跳过错误项，也不返回部分结果。输入、客户端及结构化解析异常直接传播；不增加业务重试，仅沿用 SDK 既有重试行为。任一第一阶段请求失败时不进入第二阶段，线程池会等待已提交任务结束。
+集中排序还会检查返回数量准确、ID 全部来自初筛推荐集合且没有重复。没有结构化结果时抛出 `RuntimeError`。共享 LLM 层对 Pydantic 结构校验失败附带错误反馈重新生成，最多调用三次，耗尽后传播最后一次校验异常；不放宽字段或类型约束。逐篇理由未通过引用校验时，仅对该篇附带校验反馈重新判断，最多尝试三次；耗尽后抛出最后的 `RuntimeError`，不跳过错误项，也不返回部分结果。输入与客户端异常沿用原有行为，排序业务校验不重试。任一第一阶段请求最终失败时不进入第二阶段，线程池会等待已提交任务结束。
 
 ## 使用示例与限制
 

@@ -92,6 +92,10 @@ Copy-Item .env.example .env
 
 服务与模型需支持代码所用的结构化输出接口及参数，配置规则见[查询生成](docs/retrieval.md#querygenerator)。以下示例还需要向量化依赖；首次创建向量化器会加载模型，远程模型尚未缓存时会下载文件。
 
+默认向量模型固定为 `Qwen/Qwen3-Embedding-0.6B` 的指定版本，优先逐文件读取本地 HF 缓存，只匿名下载缺失文件，不使用本机 HF 登录凭据。首次使用需联网下载约 1.2 GB 的模型文件；文件完整后，向量模型加载及编码均可离线进行。LLM 查询与推荐生成仍需连接 `.env` 配置的服务。自定义模型来源保留原有加载及认证方式。
+
+LLM 返回的数据未通过结构校验时，会附带校验反馈重新生成，最多调用三次。逐篇判断中的引用校验失败时，仅对该篇重新判断，最多尝试三次；每次判断仍受上述结构校验约束。最终仍不合法则抛出校验异常，不放宽字段约束或原文引用要求。
+
 ### 统一全流程接口
 
 `PaperRecommender` 将查询生成、`SD_CASCADE` 检索和 `EvidenceGroundedRecommendationGenerator` 的两阶段生成串联起来，默认检索 30 篇候选并生成最多 10 篇推荐。返回普通 Python 字典，可直接序列化为 JSON：
@@ -175,7 +179,7 @@ with SearchEngine() as engine, RecommendationGenerator() as generator:
         )
 ```
 
-`SearchEngine` 按需创建并复用组件；省略 `method` 时使用 `FC_HNSW`，方法名不区分大小写。显式指定 `HNSW` 或 `MULTI_QUERY_HNSW` 仍执行原算法；混合检索默认复用 FC-HNSW 组件，执行各自的候选选择与融合规则。推荐生成也可消费直接调用 BM25 得到的候选。两种生成器均取前 30 条候选并去重，以最多 5 个并发请求逐篇判断，再仅对推荐项调用一次 API 筛选排序；最终返回 `min(limit, 初筛推荐数)` 项，初筛全部不推荐时返回空列表。推荐阶段的全部 API 请求均开启 thinking，查询生成保持关闭。候选限制与输出校验见[推荐生成](docs/recommendation.md)。
+`SearchEngine` 按需创建并复用组件；省略 `method` 时使用 `FC_HNSW`，方法名不区分大小写。显式指定 `HNSW` 或 `MULTI_QUERY_HNSW` 仍执行原算法；混合检索默认复用 FC-HNSW 组件，执行各自的候选选择与融合规则。推荐生成也可消费直接调用 BM25 得到的候选。两种生成器均取前 30 条候选并去重，以最多 5 个并发请求逐篇判断，再仅对推荐项调用一次 API 筛选排序；最终返回 `min(limit, 初筛推荐数)` 项，初筛全部不推荐时返回空列表。推荐第一阶段逐篇判断关闭 thinking，设置 `temperature=0`；第二阶段集中排序使用 `thinking=high`，不发送 `temperature`。查询生成继续关闭 thinking 并使用 `temperature=0`。候选限制与输出校验见[推荐生成](docs/recommendation.md)。
 
 选择 `HRRF` 或 `HPRF` 时可分别配置稀疏候选内的语义占比、稠密候选内的语义占比和最终稠密路占比，三个权重默认均为 `0.5`，范围均为 `[0, 1]`：
 

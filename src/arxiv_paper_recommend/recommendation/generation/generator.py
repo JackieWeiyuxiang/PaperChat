@@ -7,8 +7,9 @@ class RecommendationGenerator(BaseRecommendationGenerator):
 	"""Create a ranked shortlist with reasons and marked verbatim citations."""
 
 	instructions = """
-Explain the paper's connection to the research request using the supplied title
-and abstract as a whole. Cite one or two informative source spans that help the
-reader check your assessment. Keep the explanation concise and faithful to the
-paper's stated scope, methods, and findings.
-"""
+        Explain the paper's relevance using the full title and abstract.
+
+        - **reason**: connect the paper to the request, staying faithful to its stated scope, methods, and findings.
+        - Choose informative citations that help the reader verify the assessment.
+
+    """

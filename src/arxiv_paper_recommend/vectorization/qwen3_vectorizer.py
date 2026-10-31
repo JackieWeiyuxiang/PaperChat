@@ -36,6 +36,8 @@ class Qwen3Vectorizer:
 
 		Set revision=None to use an unpinned model source. Inputs exceeding
 		max_length (including the query prompt) are truncated on the right.
+		The pinned default model uses cached files first and downloads missing
+		files anonymously, independent of the machine's Hugging Face login.
 		"""
 		if not isinstance(model, (str, Path)):
 			raise TypeError("Model must be an HF model ID or a local directory path.")
@@ -86,16 +88,20 @@ class Qwen3Vectorizer:
 		self.batch_size = batch_size
 		self.max_length = max_length
 		self.query_instruction = query_instruction
+		model_source = self._resolve_model_source(model, revision)
+		local_files_only = Path(model_source).is_dir()
 		self.tokenizer = AutoTokenizer.from_pretrained(
-			str(model),
+			model_source,
 			revision=revision,
+			local_files_only=local_files_only,
 			padding_side="left",
 			truncation_side="right",
 		)
 		self.model = AutoModel.from_pretrained(
-			str(model),
+			model_source,
 			revision=revision,
-			torch_dtype=torch.float32,
+			local_files_only=local_files_only,
+			dtype=torch.float32,
 		)
 		if self.model.config.hidden_size != EMBEDDING_DIMENSION:
 			raise ValueError(
@@ -103,6 +109,40 @@ class Qwen3Vectorizer:
 			)
 		self.model.to(self.device)
 		self.model.eval()
+
+	@staticmethod
+	def _resolve_model_source(model: str | Path, revision: str | None) -> str:
+		"""Ensure every required default-model file exists before local loading."""
+		if str(model) != DEFAULT_MODEL or revision != DEFAULT_REVISION:
+			return str(model)
+
+		from huggingface_hub import hf_hub_download
+		from huggingface_hub.errors import LocalEntryNotFoundError
+
+		for filename in (
+			"config.json",
+			"tokenizer_config.json",
+			"tokenizer.json",
+			"merges.txt",
+			"vocab.json",
+			"model.safetensors",
+		):
+			try:
+				cached_file = hf_hub_download(
+					DEFAULT_MODEL,
+					filename,
+					revision=revision,
+					token=False,
+					local_files_only=True,
+				)
+			except LocalEntryNotFoundError:
+				cached_file = hf_hub_download(
+					DEFAULT_MODEL,
+					filename,
+					revision=revision,
+					token=False,
+				)
+		return str(Path(cached_file).parent)
 
 	def encode_queries(self, texts: str | list[str]) -> NDArray[np.float32]:
 		"""Encode queries with the configured research retrieval instruction.
