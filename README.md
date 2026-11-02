@@ -1,5 +1,7 @@
 # arxiv-paper-recommend
 
+中文 | [English](README.en.md)
+
 基于 arXiv 标题与摘要的检索增强论文推荐项目，用于 AI6127（2026）课程作业。通过 Python API 检索论文，并基于候选内容生成最多 10 条推荐及简短理由。
 
 ## 项目能力
@@ -18,7 +20,7 @@
 | `SD_CASCADE` | BM25 召回后对全部候选计算稠密 `score()`，降序返回前 `limit` 篇，默认使用 FC 分数 | 越大越相关 |
 | `HPRF` | 沿用 HRRF 候选，分别按 BM25 与语义百分位重排两路，再加权融合两路排名百分位 | 越大越相关 |
 
-不同方法的分数不能直接比较。目前没有正式质量或性能评估结论。独立来源引用、Web 界面和完整采集清洗流程仍待实现，详见[项目目标与进度](docs/project.md)。
+不同方法的分数不能直接比较。目前没有正式质量或性能评估结论。本地 Web 界面已实现；独立来源引用和完整采集清洗流程仍待完善，详见[项目目标与进度](docs/project.md)。
 
 稀疏检索为标题、摘要分别建立单字段 FTS5 索引，各自使用独立的长度统计和 IDF。总分为 `title_weight × 标题 BM25 + 摘要 BM25`；直接调用标题加权检索器可在每次调用中指定权重，详见[检索 API](docs/retrieval.md#titleweightedbm25retriever)。
 
@@ -45,7 +47,7 @@ uv run python -m arxiv_paper_recommend.corpus.build_index
 
 从旧版双字段 FTS5 数据库升级时，只需运行上述 `build_database` 命令，即可在保留已有论文整数 ID 的同时重建标题、摘要索引并移除旧索引；本次仅索引结构与评分方式变化，无需重建 FAISS。检索器只读打开数据库，不会自动升级旧索引。
 
-自定义路径和更新规则见[数据与索引构建](docs/data.md)。项目当前使用 Python API，没有检索命令或 Web 启动入口。
+自定义路径和更新规则见[数据与索引构建](docs/data.md)。项目提供 Python API 和下文所述的本地 Web 启动入口。
 
 ## 最小检索示例
 
@@ -218,3 +220,18 @@ with SearchEngine() as engine:
 
 [查询示例](data/example_queries.json)包含 40 条中英文研究请求，覆盖十个主题，尚无人工相关性标注。
 四方法代理实验的运行方式、结果文件和标签限制见[检索创新实验](experiments/README.md)。
+
+## 本地查询界面
+
+安装依赖后，在项目根目录配置 `.env` 中的 `LLM_API_KEY`、`LLM_MODEL`，以及服务需要的 `LLM_API_URL`，然后启动：
+
+```bash
+uv sync --extra vectorization
+uv run python -m arxiv_paper_recommend.web
+```
+
+浏览器打开 http://127.0.0.1:8000 。输入研究请求后，界面调用 `PaperRecommender.recommend()`，显示最多 10 篇论文、推荐理由、引用文本及可展开的摘要。引用由模型提供，界面不将其标记为已经验证。可用 `--port 8001` 更换端口。
+
+这是本地单任务演示界面，同一时间执行一次检索；模型、索引与 SQLite 连接在专用线程复用。页面提供等待、空结果及错误提示，API 为 `POST /api/recommend`，请求 JSON 为 `{"request": "..."}`，响应保持 pipeline 的字典结构。API 密钥仅从服务端读取。没有配置依赖或密钥时可以查看页面，但不能执行真实推荐。
+
+界面采用聊天式布局：底部输入框、研究问题建议及论文结果卡片。Enter 提交，Shift+Enter 换行；页面仅保留当前搜索结果，刷新后清空，不提供历史面板或新建搜索按钮。每次查询独立调用 pipeline，不自动携带之前的问题。推荐理由保留完整文字及引用原文，仅隐藏引用标记；打开摘要时，逐字匹配的引用片段会高亮并附编号。

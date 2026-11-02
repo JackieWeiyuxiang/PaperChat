@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PaperChat · Research assistant</title>
+<style>
+*{box-sizing:border-box} :root{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#242424;background:#fff;font-size:15px}body{margin:0}button,textarea{font:inherit}button{cursor:pointer}button:disabled{cursor:wait;opacity:.45}button:focus-visible,a:focus-visible,summary:focus-visible{outline:2px solid #26765e;outline-offset:4px}[hidden]{display:none!important}
+.workspace{margin-left:0;height:100dvh;display:flex;flex-direction:column}header{height:70px;flex-shrink:0;padding:0 34px;display:flex;align-items:center;justify-content:space-between;background:#fff}.product-name{font-size:17px;font-weight:600;letter-spacing:-.3px}.subtitle{font-size:12px;font-weight:400;color:#93938c;margin-left:10px}.scroll-area{flex:1;min-height:0;overflow:auto;scroll-behavior:smooth}.content{max-width:800px;margin:auto;padding:20px 28px 38px}.welcome{padding-top:clamp(45px,12vh,125px);text-align:center}.welcome-icon{width:46px;height:46px;border-radius:14px;background:#f0f5f1;display:grid;place-items:center;color:#41775b;margin:0 auto 22px;font-size:24px}h1{font-size:34px;font-weight:550;line-height:1.25;letter-spacing:-1.2px;margin:0 0 14px}.intro{color:#898981;line-height:1.7;margin:0 auto 35px;font-size:14px}.suggestions{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;text-align:left}.suggestion{background:white;border:1px solid #e5e5df;border-radius:14px;padding:18px;text-align:left;color:#575751;line-height:1.6;font-size:13px}.suggestion:hover{background:#f7f8f5;border-color:#c7d0c6}.suggestion b{display:block;font-size:13px;color:#30342d;margin-bottom:8px;font-weight:600}.suggestion span{display:block;color:#999a91;font-size:18px;margin-bottom:12px}.composer-wrap{flex-shrink:0;padding:12px 28px 16px;background:white}.composer-container{max-width:744px;margin:auto}.composer{padding:14px 16px 10px;border:1px solid #e1e1db;background:#f8f8f6;border-radius:24px;box-shadow:0 3px 14px #00000004}.composer:focus-within{border-color:#b8c6b7;box-shadow:0 0 0 2px #eef3ec}textarea{display:block;width:100%;resize:none;min-height:54px;max-height:140px;border:0;background:transparent;outline:none;padding:4px 2px;color:#242424;line-height:1.6}textarea::placeholder{color:#95958e}.composer-bottom{display:flex;align-items:center;justify-content:space-between;margin-top:5px}.composer-hint{font-size:11px;color:#96968e}.send{border:0;background:#292e27;color:#fff;width:34px;height:34px;border-radius:50%;display:grid;place-items:center}.send:hover{background:#416044}.footnote{text-align:center;font-size:11px;color:#a0a098;margin:10px 0 0}.user-row{display:flex;justify-content:flex-end;margin:12px 0 32px}.user-message{background:#f1f1ed;border-radius:20px;padding:13px 19px;max-width:85%;white-space:pre-wrap;line-height:1.7;font-size:14px;overflow-wrap:anywhere}.assistant-heading{display:flex;gap:10px;align-items:center;margin-bottom:20px;font-size:13px;font-weight:600}.assistant-icon{background:#edf3ed;color:#52734b;border-radius:8px;width:26px;height:26px;display:grid;place-items:center}.status{font-size:13px;line-height:1.7;color:#8a8a80;margin-bottom:20px}.status:empty{display:none}.status.loading:before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:#4b7951;margin-right:9px;animation:pulse 1.2s infinite}.status.error{color:#ae4646}.result-count{font-size:13px;color:#73736b;margin-bottom:22px}article{border:1px solid #e5e5df;border-radius:14px;padding:22px;margin-bottom:16px;background:white}.paper-meta{display:flex;gap:10px;align-items:center;color:#98988f;font-size:11px;margin-bottom:10px}.rank{color:#58724c;font-weight:600;background:#f0f4ec;border-radius:5px;padding:2px 6px}h3{margin:0 0 17px;font-size:17px;line-height:1.5;font-weight:600;letter-spacing:-.2px}a{color:inherit;text-decoration:none}h3 a:hover{color:#4b7251;text-decoration:underline}.section-label{font-size:10px;font-weight:650;letter-spacing:1px;text-transform:uppercase;color:#92968b;margin:17px 0 6px}.reason{font-size:14px;line-height:1.8;white-space:pre-wrap;color:#55584f;overflow-wrap:anywhere}details{border-top:1px solid #eeeee8;padding-top:13px;margin-top:18px}summary{font-size:12px;color:#747b6d;cursor:pointer}.abstract{font-size:13px;line-height:1.85;color:#6d7066;white-space:pre-wrap}.empty{padding:22px 0;color:#85877c;line-height:1.8;font-size:14px}@keyframes pulse{50%{opacity:.3}}@media(prefers-reduced-motion:reduce){*{animation:none!important;scroll-behavior:auto!important}}@media(max-width:850px){.workspace{margin-left:0}.suggestions{grid-template-columns:1fr}.suggestion{padding:12px 16px}.suggestion span{display:none}.welcome{padding-top:30px}.intro{margin-bottom:24px}}@media(max-width:600px){.workspace{margin-left:0}header{padding:0 20px;height:58px}.subtitle{display:none}.content{padding:20px}.composer-wrap{padding:8px 15px 12px}h1{font-size:28px}.welcome{padding-top:25px}.composer-hint{font-size:10px}article{padding:18px}.footnote{font-size:10px}}
+
+
+article{padding:16px 20px;margin-bottom:10px}article h3{margin-bottom:10px}.paper-meta{margin-bottom:6px}.paper-body{padding-top:4px}
+.citation-highlight{background:#edf3df;color:inherit;border-radius:3px;padding:1px 2px;box-decoration-break:clone;-webkit-box-decoration-break:clone}.citation-number{font-size:10px;color:#57743e;margin-left:3px;font-weight:600}
+</style>
+</head>
+<body>
+<div class="workspace">
+ <header><div class="product-name">PaperChat <span class="subtitle">Your research companion</span></div></header>
+ <div class="scroll-area" id="scroll-area"><main class="content">
+  <section class="welcome" id="welcome"><div class="welcome-icon" aria-hidden="true">▤</div><h1>Where will your research take you?</h1><p class="intro">Start with a topic, a question, or a problem.<br>Discover papers that move your research forward.</p>
+   <div class="suggestions">
+    <button class="suggestion" data-query="I'm new to RAG and would like papers introducing its main research directions."><span aria-hidden="true">↗</span><b>Explore a new topic</b>Help me get started with RAG.</button>
+    <button class="suggestion" data-query="My agent gets stuck after a tool call fails. Could you find papers studying this problem?"><span aria-hidden="true">⌁</span><b>Work through a problem</b>My AI agent gets stuck using tools.</button>
+    <button class="suggestion" data-query="I'm looking for papers on keeping a character's appearance consistent across generated video frames."><span aria-hidden="true">◎</span><b>Go a little deeper</b>Find research on video consistency.</button>
+   </div>
+  </section>
+  <section id="conversation" aria-label="Search conversation" hidden>
+   <div class="user-row"><div class="user-message" id="user-message"></div></div>
+   <div class="assistant-heading"><span class="assistant-icon" aria-hidden="true">▤</span>PaperChat</div>
+   <div class="status" id="status" role="status" aria-live="polite"></div>
+   <div id="results" aria-label="Paper recommendations" aria-busy="false"><div class="result-count" id="result-count"></div><div id="papers"></div><p class="empty" id="empty" hidden></p></div>
+  </section>
+ </main></div>
+ <div class="composer-wrap"><div class="composer-container">
+  <form class="composer" id="search-form"><label for="request" hidden>Describe your research request</label><textarea id="request" rows="2" maxlength="4000" required aria-label="Research request" placeholder="What would you like to explore?"></textarea><div class="composer-bottom"><span class="composer-hint">Find papers · Enter to send · Shift + Enter for a new line</span><button class="send" type="submit" id="search" aria-label="Find papers"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button></div></form>
+  <p class="footnote">AI recommendations based on abstracts. Check the source before drawing conclusions.</p>
+ </div></div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const form=$('search-form'),input=$('request'),button=$('search'),status=$('status'),results=$('results'),papers=$('papers'),empty=$('empty');
+let running=false, current=null; const searches=[];
+function element(tag,text,className){const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(className)n.className=className;return n;}
+function render(items){papers.replaceChildren();empty.hidden=items.length>0;empty.textContent='No recommendations were returned. Try another phrasing or a broader topic.';$('result-count').textContent=items.length?`${items.length} paper${items.length===1?'':'s'} to explore`:'';for(const item of items){const paper=item.paper||{},card=element('article'),id=String(paper.arxiv_id||'').replace(/^arxiv:/,'');const meta=element('div',undefined,'paper-meta');meta.append(element('span',String(item.rank).padStart(2,'0'),'rank'),element('span','arXiv · '+id));card.append(meta);const heading=element('h3'),title=paper.title||'Untitled paper';if(/^(?:\d{4}\.\d{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/\d{7})(?:v\d+)?$/.test(id)){const a=element('a',title+' ↗');a.href='https://arxiv.org/abs/'+id;a.target='_blank';a.rel='noopener noreferrer';heading.append(a);}else heading.textContent=title;card.append(heading);
+const body=element('div',undefined,'paper-body');body.id='paper-details-'+item.rank;card.append(body);body.append(element('div','Why this paper','section-label'));const reason=element('div',undefined,'reason');
+const text=String(item.reason||'');
+const pattern=/\[\[cite\]\]([\s\S]*?)\[\[\/cite\]\]/g;
+let cursor=0;const quotes=[];
+for(const match of text.matchAll(pattern)){
+  reason.append(document.createTextNode(text.slice(cursor,match.index)));
+  quotes.push(match[1]);
+  reason.append(document.createTextNode('\u201c'+match[1]+'\u201d'));
+  reason.append(element('sup',`[${quotes.length}]`,'citation-number'));
+  cursor=match.index+match[0].length;
+}
+reason.append(document.createTextNode(text.slice(cursor)));body.append(reason);
+const details=element('details'),abstract=element('p',undefined,'abstract');
+renderAbstract(abstract,paper.abstract||'No abstract available.',quotes);
+details.append(element('summary','Read abstract'),abstract);body.append(details);papers.append(card);}}
+function renderAbstract(container,text,quotes){
+  const spans=[];
+  quotes.forEach((quote,i)=>{if(!quote)return;const start=text.indexOf(quote);if(start>=0)spans.push({start,end:start+quote.length,number:i+1});});
+  const points=[...new Set([0,text.length,...spans.flatMap(s=>[s.start,s.end])])].sort((a,b)=>a-b);
+  for(let i=0;i<points.length-1;i++){
+    const start=points[i],end=points[i+1],part=text.slice(start,end);
+    const highlighted=spans.some(s=>s.start<=start&&s.end>=end);
+    container.append(highlighted?element('mark',part,'citation-highlight'):document.createTextNode(part));
+    const numbers=spans.filter(s=>s.end===end).map(s=>`[${s.number}]`).join('');
+    if(numbers)container.append(element('sup',numbers,'citation-number'));
+  }
+}
+
+function showHistory(index){if(running)return;current=index;const e=searches[index];$('welcome').hidden=true;$('conversation').hidden=false;$('user-message').textContent=e.request;status.className='status'+(e.error?' error':'');status.textContent=e.error||e.elapsed||'';render(e.items||[]);if(e.error){empty.hidden=false;empty.textContent='Your search could not be completed. You can try again below.';}input.value=e.error?e.request:'';$('scroll-area').scrollTop=0;}
+document.querySelectorAll('.suggestion').forEach(b=>b.onclick=()=>{input.value=b.dataset.query;input.focus();});
+input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();if(!running)form.requestSubmit();}});
+form.addEventListener('submit',async e=>{e.preventDefault();if(running)return;const request=input.value.trim();if(!request){input.focus();return;}input.value='';running=true;button.disabled=true;input.disabled=true;$('welcome').hidden=true;$('conversation').hidden=false;$('user-message').textContent=request;papers.replaceChildren();empty.hidden=true;$('result-count').textContent='';results.setAttribute('aria-busy','true');status.className='status loading';status.textContent='Finding and reviewing papers…';searches.splice(0,searches.length,{request,items:[]});current=0;$('scroll-area').scrollTop=0;const started=performance.now();const timer=setInterval(()=>status.textContent=`Finding and reviewing papers… ${Math.floor((performance.now()-started)/1000)}s`,1000);try{const response=await fetch('/api/recommend',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({request})});const result=await response.json();if(!response.ok)throw new Error(result.error||'Search failed. Please try again.');if(!Array.isArray(result.recommendations))throw new Error('The server returned an unexpected result.');searches[0].items=result.recommendations;searches[0].elapsed=`Finished in ${((performance.now()-started)/1000).toFixed(1)}s`;input.value='';}catch(error){searches[0].error=error.message||'Unable to reach the server.';}finally{clearInterval(timer);running=false;button.disabled=false;input.disabled=false;results.setAttribute('aria-busy','false');showHistory(0);}});
+</script>
+</body>
+</html>
