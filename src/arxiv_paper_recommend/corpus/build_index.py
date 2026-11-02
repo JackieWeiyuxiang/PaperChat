@@ -109,7 +109,8 @@ class IndexBuilder:
 		) as temporary:
 			temporary_path = Path(temporary.name)
 		try:
-			faiss.write_index(index, str(temporary_path))
+			# Keep file I/O in Python for Unicode Windows paths.
+			faiss.serialize_index(index).tofile(temporary_path)
 			os.replace(temporary_path, self.index_path)
 		finally:
 			temporary_path.unlink(missing_ok=True)
