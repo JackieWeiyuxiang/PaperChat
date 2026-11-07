@@ -1,0 +1,93 @@
+{
+  "purpose": "供步骤二开发与试用的 40 个用户找论文请求示例，覆盖十个收录主题，以领域探索和实际研究问题为主，保留少量明确方向的查询。",
+  "corpus": "data/raw/papers.jsonl",
+  "usage": "question 和 query_en 分别是同一找论文请求的中英文表达；向量检索可将任一版本传入 encode_queries，英文 BM25 使用 query_en。scope 说明请求范围，不作为额外检索输入；宽泛请求可返回不同方向的论文，或通过追问缩小范围。 query_type 仅用于分组查看，不作为检索输入，也不表示研究水平或难度。",
+  "note": "这些示例用于试用论文检索，尚未配套人工相关性标注或目标论文集合。",
+  "questions": [
+    {
+      "id": "q1",
+      "question": "我刚开始了解 RAG，想找些论文看看这个领域主要在研究什么。",
+      "scope": "覆盖 RAG 的主要研究方向；综述或能帮助理解不同方向的研究论文均可，不限定具体方法。",
+      "topic": "rag",
+      "query_en": "I'm new to RAG and would like some papers to help me understand the main research directions.",
+      "query_type": "exploration"
+    },
+    {
+      "id": "q6",
+      "question": "我的智能体有时候工具调用失败后就卡住了，想找些论文看看别人怎么处理。",
+      "scope": "关注智能体执行失败后的处理或恢复；允许不同故障原因与方法，不预先限定恢复机制。",
+      "topic": "agents",
+      "query_en": "My agent sometimes gets stuck after a tool call fails. I'd like to find papers on how others handle this.",
+      "query_type": "research_problem"
+    },
+    {
+      "id": "q9",
+      "question": "我用的推理模型有时候回答很简单的问题也要想很久，有没有相关论文可以参考？",
+      "scope": "关注简单问题上的过长推理或推理效率；允许分析原因和提出改进方法的论文，不限定自适应预算。",
+      "topic": "reasoning",
+      "query_en": "The reasoning model I use sometimes spends a long time on simple questions. Are there papers I could read about this?",
+      "query_type": "research_problem"
+    },
+    {
+      "id": "q12",
+      "question": "我的图像问答模型有时会说出图里没有的东西，想找些研究这个问题的论文。",
+      "scope": "关注视觉语言模型输出缺乏图像依据的现象及其分析或缓解；不限定某一种幻觉检测方法。",
+      "topic": "multimodal",
+      "query_en": "My visual question answering model sometimes mentions things that aren't in the image. I'd like papers studying this problem.",
+      "query_type": "research_problem"
+    },
+    {
+      "id": "q15",
+      "question": "我让文生图模型把物体放在指定位置，结果经常不对。能帮我找些相关论文吗？",
+      "scope": "关注生成图像的位置、布局或空间关系与用户要求不一致的问题，允许评估、分析和改进方法。",
+      "topic": "image_video_generation",
+      "query_en": "When I ask a text-to-image model to put objects in specific positions, it often gets them wrong. Could you find some relevant papers?",
+      "query_type": "research_problem"
+    },
+    {
+      "id": "q18",
+      "question": "我想了解大模型在机器人上的应用，能帮我找些论文作为起点吗？",
+      "scope": "关注大模型与机器人任务的结合，可涉及规划、交互或控制，不限定操作动作生成。",
+      "topic": "embodied_robotics",
+      "query_en": "I'd like to learn about applications of large language models in robotics. Could you find some papers to start with?",
+      "query_type": "exploration"
+    },
+    {
+      "id": "q29",
+      "question": "我想了解让大模型训练和运行更省资源的研究，能推荐一些入门论文吗？",
+      "scope": "覆盖大模型训练与推理效率的主要方向。",
+      "topic": "efficient_training_inference",
+      "query_en": "I’d like to learn about making large language models cheaper to train and run. Could you recommend some papers to start with?",
+      "query_type": "exploration"
+    },
+    {
+      "id": "q32",
+      "question": "我想了解大模型能怎样帮助软件开发，能找些论文让我了解主要方向吗？",
+      "scope": "覆盖大模型辅助软件开发的不同任务。",
+      "topic": "code_software_engineering",
+      "query_en": "I’d like to learn how large language models can help with software development. Could you find papers introducing the main directions?",
+      "query_type": "exploration"
+    },
+    {
+      "id": "q35",
+      "question": "我刚开始关注大模型安全，想找些论文了解主要风险和研究方向。",
+      "scope": "覆盖大模型安全风险及主要研究方向。",
+      "topic": "safety_alignment",
+      "query_en": "I’m starting to explore LLM safety. Please find papers that explain the main risks and research directions.",
+      "query_type": "exploration"
+    },
+    {
+      "id": "q38",
+      "question": "我想了解 AI 在科学研究中的应用，能推荐一些展示不同研究方向的论文吗？",
+      "scope": "覆盖 AI 辅助科学研究的不同领域与任务。",
+      "topic": "ai_for_science",
+      "query_en": "I’d like to learn how AI is used in scientific research. Could you recommend papers illustrating different directions?",
+      "query_type": "exploration"
+    }
+  ],
+  "query_types": {
+    "exploration": "了解领域或研究方向。",
+    "research_problem": "描述遇到的现象或研究问题，不预先指定原因和解决办法。",
+    "specific_direction": "已有明确技术方向或评价目标，寻找相关论文。"
+  }
+}

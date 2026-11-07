@@ -1,0 +1,24 @@
+{
+  "judge_model": "deepseek-flash",
+  "query_count": 10,
+  "successful_judgment_count": 10,
+  "citation_free_baseline": {
+    "recommendation_relevance": 2.0,
+    "reason_faithfulness": 2.0,
+    "reason_helpfulness": 2.0,
+    "evidence_verifiability": 1.1,
+    "overall_quality": 2.0
+  },
+  "evidence_grounded": {
+    "recommendation_relevance": 2.0,
+    "reason_faithfulness": 2.0,
+    "reason_helpfulness": 2.0,
+    "evidence_verifiability": 2.0,
+    "overall_quality": 2.0
+  },
+  "preference_counts": {
+    "citation_free_baseline": 0,
+    "evidence_grounded": 9,
+    "tie": 1
+  }
+}
