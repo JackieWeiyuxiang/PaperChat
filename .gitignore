@@ -13,3 +13,6 @@ data/statistics.md
 
 # Local environment secrets
 .env
+
+测试集
+tmp

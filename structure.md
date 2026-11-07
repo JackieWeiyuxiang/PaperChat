@@ -81,11 +81,11 @@ arxiv_paper_recommend/
 | `retrieval.innovation` | 独立 FC-HNSW、原始覆盖评分及 HPRF 分层百分位混合检索 | FC-HNSW 继承多查询 HNSW，其原始覆盖评分不依赖 hybrid；HPRF 继承 HybridRetriever，包级延迟导出避免循环依赖 |
 | `retrieval.query` | 一次结构化生成 `RetrievalInputs`（关键词、分面与主查询），保留独立生成方法 | 统一调用使用 thinking=high、最多重试 5 次；独立方法沿用 thinking=none、最多重试 3 次；不执行检索或向量化 |
 | `retrieval.search_engine` | 注册方法、生成输入、延迟创建和复用组件 | 不承担算法内部排名逻辑 |
-| `recommendation.models` | 统一推荐记录及原始检索结果关联，理由保留模型生成的引用标记 | 不依赖 LLM 模块 |
+| `recommendation.models` | 统一推荐记录及原始检索结果关联，保存初筛理由 | 不依赖 LLM 模块 |
 | `recommendation.base` | 前 30 条去重、最多 5 个并发逐篇判断、理由非空与排序校验、单篇失败打印并跳过、仅一篇通过时直接返回 | 复用共享 LLM 默认重试预算，不实现额外重试；逐篇判断 thinking=none、temperature=0，至少两篇通过时集中排序使用 thinking=high；不校验引用或访问检索内部工具 |
-| `recommendation.generation` | 基于完整标题和摘要解释相关性的判断提示词 | 实现共同基类，统一返回 `PaperRecommendation` |
+| `recommendation.generation` | 基于完整标题和摘要解释相关性的判断提示词，不提及引用 | 实现共同基类，统一返回 `PaperRecommendation` |
 | `recommendation.innovation.models` | `EvidenceGroundedRecommendation` 作为统一结果模型的别名 | 模型定义不依赖 LLM；经 `innovation` 包导入时会同时加载生成器 |
-| `recommendation.innovation.evidence_generator` | 要求理由具体主张仅由标注原文支持的判断提示词 | 实现共同基类，复用相同的流程与校验；不自动验证语义支持性 |
+| `recommendation.innovation.evidence_generator` | 要求 1～2 处原文引用、规定标记格式，且理由具体主张仅由标注原文支持的判断提示词 | 实现共同基类，复用相同的流程与校验；不自动验证语义支持性 |
 | `experiments/results` | 保存旧版 BM25、HNSW、HRRF、FC-HRRF 的输入、结果与报告 | 旧脚本已删除；主题代理标签不能作为当前 HPRF 或人工相关性评估结论 |
 | `experiments/generation` | 固定检索候选导出、基础与证据生成的配对运行、状态与耗时记录 | 通过公开 API 调用检索和生成；不实现人工标注或质量指标汇总 |
 | `recommendation.citations / web` | 保留完整引用和界面扩展边界 | 当前为空包，不代表已有功能 |
@@ -164,7 +164,7 @@ vectors.npz + documents.db ── IndexBuilder ──> documents.faiss
                              ↓
                     逐篇判断（最多并发 5 个，thinking=none，temperature=0）
                              ↓
-                    bool + reason（提示词要求 1～2 处引用，仅校验结构与理由非空）
+                    bool + reason（仅证据增强版提示词要求引用；校验结构与理由非空）
                              ↓
                     成功初筛推荐项 ── 仅一篇直接返回，至少两篇集中排序（thinking=high）
                              ↓
@@ -172,8 +172,10 @@ vectors.npz + documents.db ── IndexBuilder ──> documents.faiss
 ```
 
 调用方可自行衔接下游生成，也可使用统一入口自动衔接 SD Cascade 与证据生成。
-两种生成器均返回统一推荐记录，提示词继续要求 `reason` 使用 `[[cite]]原文片段[[/cite]]`
-标注 1～2 处标题或摘要的连续原文；程序不校验引用标记、数量、引用内容非空或原文匹配。
+两种生成器均返回统一推荐记录。基础版提示词依据完整标题和摘要解释相关性，不提及引用。
+仅证据增强版提示词要求 `reason` 使用 `[[cite]]原文片段[[/cite]]` 标注 1～2 处标题或摘要的连续原文，
+并要求具体主张由标注片段直接支持；程序不校验引用标记、数量、引用内容非空或原文匹配，
+也不修复或删除模型生成的标记。
 初筛推荐数为 0 时返回空列表，为 1 时直接返回该篇；至少两篇时第二阶段只返回有序 ID，
 理由沿用初筛结果。引用格式、原文对应关系及语义支持性需另行评估，当前不补充作者、日期、URL 或完整引用元数据。
 

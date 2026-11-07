@@ -4,7 +4,7 @@
 
 ## 项目能力
 
-已有 10,000 篇论文的数据快照、SQLite FTS5 数据库和 FAISS 向量索引。支持关键词检索、本地 Qwen3 向量化、LLM 查询生成及推荐理由生成。下游生成提供基础方法和 Evidence-Grounded 方法，两者都先逐篇判断，再集中筛选排序，理由包含可核查的标题／摘要原文引用。
+已有 10,000 篇论文的数据快照、SQLite FTS5 数据库和 FAISS 向量索引。支持关键词检索、本地 Qwen3 向量化、LLM 查询生成及推荐理由生成。下游生成提供基础方法和 Evidence-Grounded 方法，两者都先逐篇判断，再集中筛选排序。基础方法依据完整标题和摘要生成理由；Evidence-Grounded 方法要求理由包含可核查的标题／摘要原文引用。
 
 | 检索方法 | 流程 | 分数方向 |
 | --- | --- | --- |
@@ -197,7 +197,7 @@ with SearchEngine() as engine:
 
 底层入口 `retrieval.hybrid.HRRFRetriever.search()` 和 `retrieval.innovation.HPRFRetriever.search()` 支持相同三个权重，分别用于 RRF 和排名百分位融合；公式与边界规则见[检索 API](docs/retrieval.md#混合检索)。HRRF 默认排序保持不变，最终分数因权重归一化变为原来的一半。旧 `FACET_COVERAGE` 入口已移除，迁移方式见[接口迁移](docs/migration.md)。
 
-两种生成器统一返回 `PaperRecommendation`，提示词继续要求 `reason` 包含 1～2 处 `[[cite]]原文片段[[/cite]]` 引用。程序保留模型生成的标记，不再校验引用数量、配对、嵌套、引用内容非空或原文匹配；理由非空、结构与排序结果校验保留。`arxiv_paper_recommend.recommendation.innovation` 中的 `EvidenceGroundedRecommendationGenerator` 使用相同的调用方式，进一步通过提示词要求理由中的论文具体主张由标注片段直接支持。引用格式、原文对应关系和语义支持性需单独评估；作者、日期、来源 URL 和完整引用系统仍待补充。原有独立 `evidence` 字段已移除，接口与示例见[证据生成](docs/evidence_grounded_generation.md)。
+两种生成器统一返回 `PaperRecommendation`。基础 `RecommendationGenerator` 的提示词只要求依据完整标题和摘要解释相关性，不提及引用。`arxiv_paper_recommend.recommendation.innovation` 中的 `EvidenceGroundedRecommendationGenerator` 使用相同的调用方式，提示词要求 `reason` 包含 1～2 处 `[[cite]]原文片段[[/cite]]` 引用，且理由中的论文具体主张由标注片段直接支持。程序保留模型生成的理由及其中可能出现的标记，不校验引用数量、配对、嵌套、引用内容非空或原文匹配；理由非空、结构与排序结果校验保留。引用格式、原文对应关系和语义支持性需单独评估；作者、日期、来源 URL 和完整引用系统仍待补充。原有独立 `evidence` 字段已移除，接口与示例见[证据生成](docs/evidence_grounded_generation.md)。
 
 已提供[生成对比实验脚本](experiments/generation/README.md)，用于保存固定检索候选，再配对运行基础方法与证据生成方法。正式质量、延迟与成本结论仍待评估。
 

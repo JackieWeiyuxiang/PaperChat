@@ -2,6 +2,12 @@
 
 本文记录不兼容变更。当前用法见[检索 API](retrieval.md)、[推荐生成](recommendation.md)和[数据与构建](data.md)。除明确列出的兼容名称外，旧名称不提供别名或转发模块。
 
+## 基础生成提示词移除引用要求（2026-11-07）
+
+`RecommendationGenerator` 依据完整标题和摘要判断相关性并生成理由，公共初筛、基础版专属提示词及公共排序提示词均不再提及引用。原有引用数量、标记格式、连续逐字原文、缺失摘要时引用标题及不推荐时引用实际范围等要求，集中到 `EvidenceGroundedRecommendationGenerator` 的专属提示词；具体主张必须由引用片段直接支持的要求保留。
+
+公开调用方式、`recommended` / `reason` 结构化字段及 `PaperRecommendation` 不变。理由非空、结构、严格类型及排序校验沿用现有行为；程序不禁止或清理基础版自发生成的引用，也不新增引用校验。调用方应仅对证据增强版应用引用输出预期。
+
 ## Pipeline 查询生成、容错与批量评分（2026-10-31）
 
 多查询稠密及全部混合引擎入口改为一次 `QueryGenerator.generate()`，返回公开的
@@ -14,7 +20,7 @@ BM25、标题加权 BM25 和单查询 HNSW 继续使用这些专用方法及原�
 初筛仅一篇成功推荐时直接返回并设为第 1 名，跳过排序；至少两篇时仍由 LLM 选择和排序，
 集中排序最终失败继续传播。推荐调用仍各自最多重试 3 次。
 
-引用生成提示词与 `[[cite]]原文片段[[/cite]]` 格式保留，但不再校验标记数量、配对、嵌套、
+证据增强版的引用生成提示词与 `[[cite]]原文片段[[/cite]]` 格式保留，但不再校验标记数量、配对、嵌套、
 引用内容非空或原文匹配。理由非空、结构、严格类型及排序输出校验保留。
 调用方不应再将成功返回视为引用格式或原文匹配已通过校验。
 
@@ -130,11 +136,11 @@ uv run python -m arxiv_paper_recommend.corpus.build_database
 两种推荐生成器共同实现 `BaseRecommendationGenerator`，公开 `generate(request, papers, limit=10)` 调用方式不变，统一返回 `list[PaperRecommendation]`：
 
 - 第一阶段逐篇返回严格的 `recommended: bool` 与 `reason: str`，最多 5 个请求并发。
-- 提示词要求 `reason` 包含 1～2 处 `[[cite]]原文片段[[/cite]]`；引用标记与原文不再校验，见本文开头的 Pipeline 更新。
+- 当前仅证据增强版提示词要求 `reason` 包含 1～2 处 `[[cite]]原文片段[[/cite]]`；引用标记与原文不再校验，基础版提示词差异见本文开头的更新。
 - 第二阶段只筛选排序成功初筛推荐项，最终数量为 `min(limit, 初筛推荐数)`；无推荐时返回空列表，单篇直接返回。
 - 逐篇判断使用 `reasoning.effort="none"`、`temperature=0`，集中排序使用 `high` 并省略 `temperature`；统一查询生成同样使用 `high`，独立查询方法保留 `none`。
 
-`EvidenceGroundedRecommendation` 保留原有导入路径，现为 `PaperRecommendation` 的别名。独立 `evidence` 字段已移除；调用方应使用包含引用标记的 `reason`，不再访问 `item.evidence` 或以旧 `evidence` 参数构造结果。生成对比脚本也统一保存带标记的 `reason`，不再写入单独的 `evidence`。
+`EvidenceGroundedRecommendation` 保留原有导入路径，现为 `PaperRecommendation` 的别名。独立 `evidence` 字段已移除；证据增强版调用方应从 `reason` 中读取引用，不再访问 `item.evidence` 或以旧 `evidence` 参数构造结果。生成对比脚本统一保存 `reason`，保留模型生成的理由及其中可能出现的标记，不再写入单独的 `evidence`。
 
 以下结构调整表保留更早的迁移记录；推荐响应校验与数量规则以本节及[推荐生成](recommendation.md)为准。
 
