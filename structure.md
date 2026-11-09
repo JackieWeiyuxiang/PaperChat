@@ -88,7 +88,8 @@ arxiv_paper_recommend/
 | `recommendation.innovation.evidence_generator` | 要求 1～2 处原文引用、规定标记格式，且理由具体主张仅由标注原文支持的判断提示词 | 实现共同基类，复用相同的流程与校验；不自动验证语义支持性 |
 | `experiments/results` | 保存旧版 BM25、HNSW、HRRF、FC-HRRF 的输入、结果与报告 | 旧脚本已删除；主题代理标签不能作为当前 HPRF 或人工相关性评估结论 |
 | `experiments/generation` | 固定检索候选导出、基础与证据生成的配对运行、状态与耗时记录 | 通过公开 API 调用检索和生成；不实现人工标注或质量指标汇总 |
-| `recommendation.citations / web` | 保留完整引用和界面扩展边界 | 当前为空包，不代表已有功能 |
+| `recommendation.citations` | 保留完整引用扩展边界 | 当前为空包 |
+| `web` | 本地 HTML 查询界面与 HTTP 适配器 | `__main__.py` 在专用线程调用 pipeline；`index.html` 展示推荐与引用，不复制检索或生成逻辑 |
 
 `Retriever` 统一稀疏／稠密的搜索与评分契约；`HNSWRetriever.raw_score()` 提供指定 ID 的精确内积，`MultiQueryHNSWRetriever.raw_recall()` 提供完整多查询召回并集及主查询精确分数。原 HNSW 的 `score()`、多查询 HNSW 的 `recall()` 分别委托这两个原始入口，多查询 `search()` 每分面召回 `ceil(limit * sqrt(m))` 篇后按请求数量截取并使用原始内积，`m` 为去重后的分面数。`FCHNSWRetriever.search()`、`score()`、`recall()` 统一使用主查询原始内积与分面非负内积几何平均的加权分数，分数不依赖候选集合；`recall()` 保留完整并集，`search()` 默认每分面深度同为 `ceil(limit * sqrt(m))`，显式 `candidate_limit` 直接覆盖深度，独立 dense 无 100 条上限。`recall()`、`raw_recall()` 的 `limit` 直接表示每分面深度，不再次缩放。`HybridRetriever` 独立定义混合搜索，不提供单独评分接口。共享限值位于 `retrieval.constants`，混合算法专用预算位于 `retrieval.hybrid.constants`，排序、排名百分位与 RRF 位于 `_ranking`，原始评分缓存位于 `_scoring`，FC-HNSW 原始覆盖评分位于 `innovation._facet_coverage`，权重校验位于 `common.validation`，缓存仅限单次调用。
 
@@ -190,3 +191,5 @@ vectors.npz + documents.db ── IndexBuilder ──> documents.faiss
 - 包级导入为业务 API 推荐入口；项目根包延迟导出 `PaperRecommender`，仅导入根包不会加载检索或 LLM 模块；检索根包延迟导出引擎，推荐根包延迟导出共同基类与基础生成器。导入 `SearchResult` 或统一推荐模型 `PaperRecommendation` 不加载 FAISS 或 LLM 客户端模块；`recommendation.innovation` 当前直接导出模型与生成器，会加载共享 LLM 模块。
 - PyTorch、Transformers 仅在实例化向量化器时导入。模型和索引跨查询复用。
 - 文件使用 snake_case，类使用 PascalCase；Python 注释与文档字符串以清晰英文为主，使用文档以中文为主；编辑后执行 `ruff format`。
+
+本地 UI 入口：`python -m arxiv_paper_recommend.web`。浏览器通过 `POST /api/recommend` 提交 request，专用线程持有并复用 `PaperRecommender`，确保 SQLite 连接在创建线程使用。页面由 `web/index.html` 提供，引用标记仅用于排版，所有模型文本通过 textContent 渲染。

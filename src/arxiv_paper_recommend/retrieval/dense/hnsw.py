@@ -36,7 +36,8 @@ class HNSWRetriever(Retriever[str]):
 		vectorizer: Qwen3Vectorizer | None = None,
 	) -> None:
 		super().__init__()
-		self.index = faiss.read_index(str(index_path))
+		# Python handles Unicode Windows paths; FAISS native file I/O may not.
+		self.index = faiss.deserialize_index(np.fromfile(index_path, dtype=np.uint8))
 		database_uri = Path(database_path).resolve().as_uri() + "?mode=ro"
 		self.conn = connect(database_uri, uri=True)
 		self._resources.callback(self.conn.close)
