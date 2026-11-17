@@ -3,12 +3,34 @@
 import argparse
 import json
 import logging
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Lock
+from uuid import UUID, uuid4
+
+from arxiv_paper_recommend.common.cancellation import (
+	CancellationToken,
+	SearchCancelled,
+	cancellation_scope,
+	check_cancelled,
+)
 
 logger = logging.getLogger(__name__)
+
+
+class SearchBusy(Exception):
+	"""Reject new work without queueing it behind another search."""
+
+
+@dataclass
+class SearchTask:
+	"""Keep a search identity and its cancellation signal together."""
+
+	search_id: str
+	token: CancellationToken = field(default_factory=CancellationToken)
 
 
 class RecommendationService:
@@ -16,10 +38,72 @@ class RecommendationService:
 
 	def __init__(self):
 		self.executor = ThreadPoolExecutor(max_workers=1)
-		self.busy = Lock()
+		self.state_lock = Lock()
+		self.active: SearchTask | None = None
+		self.recent: OrderedDict[str, str] = OrderedDict()
+		self.closed = False
 		self.pipeline = None
 
-	def recommend(self, request):
+	def recommend(self, request, search_id=None):
+		if search_id is None:
+			search_id = str(uuid4())
+		with self.state_lock:
+			if self.closed:
+				raise SearchBusy("The recommendation service is shutting down.")
+			if self.recent.get(search_id) == "cancelled":
+				raise SearchCancelled("Search cancelled.")
+			if search_id in self.recent:
+				raise SearchBusy(
+					"This search ID has already been used. Submit a new search."
+				)
+			if self.active is not None:
+				message = (
+					"A search is being cancelled. Please try again shortly."
+					if self.active.token.cancelled
+					else "A search is already running. Please try again when it finishes."
+				)
+				raise SearchBusy(message)
+			task = SearchTask(search_id)
+			self.active = task
+			try:
+				future = self.executor.submit(self._run, request, task)
+			except BaseException:
+				self.active = None
+				raise
+		return future.result()
+
+	def cancel(self, search_id):
+		with self.state_lock:
+			if self.active is not None and self.active.search_id == search_id:
+				self.active.token.cancel()
+			elif self.recent.get(search_id) != "finished":
+				# Remember cancellations that arrive before the search POST is registered.
+				self._remember(search_id, "cancelled")
+
+	def _remember(self, search_id, state):
+		"""Update bounded terminal history while holding state_lock."""
+		self.recent[search_id] = state
+		self.recent.move_to_end(search_id)
+		while len(self.recent) > 256:
+			self.recent.popitem(last=False)
+
+	def _run(self, request, task):
+		try:
+			with cancellation_scope(task.token):
+				check_cancelled()
+				pipeline = self._get_pipeline()
+				check_cancelled()
+				return pipeline.recommend(request)
+		finally:
+			# Completion and cancellation have one ordering, including exceptional exits.
+			with self.state_lock:
+				self._remember(
+					task.search_id, "cancelled" if task.token.cancelled else "finished"
+				)
+				self.active = None
+				task.token.check()
+
+	def _get_pipeline(self):
 		if self.pipeline is None:
 			from arxiv_paper_recommend.config import LLMSettings
 
@@ -38,16 +122,28 @@ class RecommendationService:
 			from arxiv_paper_recommend.pipeline import PaperRecommender
 
 			self.pipeline = PaperRecommender()
-		return self.pipeline.recommend(request)
+		return self.pipeline
 
 	def close(self):
+		with self.state_lock:
+			if self.closed:
+				return
+			self.closed = True
+			if self.active is not None:
+				self.active.token.cancel()
+			cleanup = self.executor.submit(self._close_pipeline)
+		try:
+			cleanup.result()
+		finally:
+			self.executor.shutdown(wait=True)
+
+	def _close_pipeline(self):
 		if self.pipeline is not None:
-			self.executor.submit(self.pipeline.close).result()
-		self.executor.shutdown(wait=True)
+			self.pipeline.close()
 
 
 class UIHandler(BaseHTTPRequestHandler):
-	"""Expose only the page and the recommendation endpoint."""
+	"""Expose the page, recommendations and request-scoped cancellation."""
 
 	def respond(self, status, payload, content_type="application/json; charset=utf-8"):
 		body = (
@@ -77,7 +173,7 @@ class UIHandler(BaseHTTPRequestHandler):
 			self.respond(404, {"error": "Not found."})
 
 	def do_POST(self):
-		if self.path != "/api/recommend":
+		if self.path not in {"/api/recommend", "/api/recommend/cancel"}:
 			self.respond(404, {"error": "Not found."})
 			return
 		# Browser requests must come from this UI, not a different website.
@@ -90,28 +186,42 @@ class UIHandler(BaseHTTPRequestHandler):
 			if not 0 < length <= 65536:
 				raise ValueError("Invalid request size.")
 			payload = json.loads(self.rfile.read(length))
-			request = payload.get("request") if isinstance(payload, dict) else None
-			if not isinstance(request, str) or not request.strip():
-				raise ValueError("Enter a research request.")
-			if len(request) > 4000:
-				raise ValueError("Keep your request under 4,000 characters.")
-		except (ValueError, UnicodeDecodeError) as exc:
+			if not isinstance(payload, dict):
+				raise TypeError("Expected a JSON object.")
+			cancelling = self.path == "/api/recommend/cancel"
+			if "search_id" in payload:
+				search_id = payload["search_id"]
+				if not isinstance(search_id, str):
+					raise TypeError("search_id must be a UUID string.")
+				try:
+					search_id = str(UUID(search_id))
+				except ValueError:
+					raise ValueError("search_id must be a UUID string.") from None
+			elif cancelling:
+				raise ValueError("Provide the search_id to cancel.")
+			else:
+				search_id = str(uuid4())
+			if not cancelling:
+				request = payload.get("request")
+				if not isinstance(request, str) or not request.strip():
+					raise ValueError("Enter a research request.")
+				if len(request) > 4000:
+					raise ValueError("Keep your request under 4,000 characters.")
+		except (TypeError, ValueError) as exc:
 			self.respond(400, {"error": str(exc)})
 			return
 		service = self.server.service
-		if not service.busy.acquire(blocking=False):
-			self.respond(
-				409,
-				{
-					"error": "A search is already running. Please try again when it finishes."
-				},
-			)
+		if cancelling:
+			service.cancel(search_id)
+			self.respond(202, {"status": "cancelling"})
 			return
 		try:
-			result = service.executor.submit(
-				service.recommend, request.strip()
-			).result()
+			result = service.recommend(request.strip(), search_id)
 			self.respond(200, result)
+		except SearchCancelled:
+			self.respond(409, {"error": "Search cancelled.", "cancelled": True})
+		except SearchBusy as exc:
+			self.respond(409, {"error": str(exc)})
 		except ModuleNotFoundError:
 			self.respond(
 				503,
@@ -138,8 +248,6 @@ class UIHandler(BaseHTTPRequestHandler):
 					"error": "The recommendation service could not complete this search. Check the server configuration or try again."
 				},
 			)
-		finally:
-			service.busy.release()
 
 
 def main():
@@ -155,8 +263,10 @@ def main():
 	except KeyboardInterrupt:
 		pass
 	finally:
-		server.server_close()
-		service.close()
+		try:
+			service.close()
+		finally:
+			server.server_close()
 
 
 if __name__ == "__main__":

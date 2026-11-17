@@ -10,6 +10,7 @@
 
 article{padding:16px 20px;margin-bottom:10px}article h3{margin-bottom:10px}.paper-meta{margin-bottom:6px}.paper-body{padding-top:4px}
 .citation-highlight{background:#edf3df;color:inherit;border-radius:3px;padding:1px 2px;box-decoration-break:clone;-webkit-box-decoration-break:clone}.citation-number{font-size:10px;color:#57743e;margin-left:3px;font-weight:600}
+.search-controls{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 20px;border:1px solid #e1e1db;background:#f8f8f6;border-radius:18px}.search-hint{font-size:13px;color:#73736b}.search-action{flex-shrink:0;border:1px solid #cbd4c7;border-radius:10px;background:#fff;color:#3e5939;padding:9px 13px}.search-action:hover{background:#eef3ec}.cancel-feedback{margin-top:12px;padding:12px 16px;border:1px solid #e8cccc;border-radius:12px;color:#ae4646}.cancel-feedback p{font-size:13px;line-height:1.6;margin:0 0 10px}@media(max-width:600px){.search-controls{flex-wrap:wrap;padding:14px 16px}}
 </style>
 </head>
 <body>
@@ -32,13 +33,17 @@ article{padding:16px 20px;margin-bottom:10px}article h3{margin-bottom:10px}.pape
  </main></div>
  <div class="composer-wrap"><div class="composer-container">
   <form class="composer" id="search-form"><label for="request" hidden>Describe your research request</label><textarea id="request" rows="2" maxlength="4000" required aria-label="Research request" placeholder="What would you like to explore?"></textarea><div class="composer-bottom"><span class="composer-hint">Find papers · Enter to send · Shift + Enter for a new line</span><button class="send" type="submit" id="search" aria-label="Find papers"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button></div></form>
+  <div class="search-controls" id="search-controls" hidden><span class="search-hint" id="search-hint"></span><button class="search-action" id="search-action" type="button">Cancel search</button></div>
+  <div class="cancel-feedback" id="cancel-feedback" hidden><p id="cancel-error" role="alert"></p><button class="search-action" id="retry-cancel" type="button">Retry cancellation</button></div>
   <p class="footnote">AI recommendations based on abstracts. Check the source before drawing conclusions.</p>
  </div></div>
 </div>
 <script>
 const $ = id => document.getElementById(id);
 const form=$('search-form'),input=$('request'),button=$('search'),status=$('status'),results=$('results'),papers=$('papers'),empty=$('empty');
-let running=false, current=null; const searches=[];
+const controls=$('search-controls'),action=$('search-action'),hint=$('search-hint');
+let current=null;
+const cancellations=new Map();
 function element(tag,text,className){const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(className)n.className=className;return n;}
 function render(items){papers.replaceChildren();empty.hidden=items.length>0;empty.textContent='No recommendations were returned. Try another phrasing or a broader topic.';$('result-count').textContent=items.length?`${items.length} paper${items.length===1?'':'s'} to explore`:'';for(const item of items){const paper=item.paper||{},card=element('article'),id=String(paper.arxiv_id||'').replace(/^arxiv:/,'');const meta=element('div',undefined,'paper-meta');meta.append(element('span',String(item.rank).padStart(2,'0'),'rank'),element('span','arXiv · '+id));card.append(meta);const heading=element('h3'),title=paper.title||'Untitled paper';if(/^(?:\d{4}\.\d{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/\d{7})(?:v\d+)?$/.test(id)){const a=element('a',title+' ↗');a.href='https://arxiv.org/abs/'+id;a.target='_blank';a.rel='noopener noreferrer';heading.append(a);}else heading.textContent=title;card.append(heading);
 const body=element('div',undefined,'paper-body');body.id='paper-details-'+item.rank;card.append(body);body.append(element('div','Why this paper','section-label'));const reason=element('div',undefined,'reason');
@@ -69,10 +74,137 @@ function renderAbstract(container,text,quotes){
   }
 }
 
-function showHistory(index){if(running)return;current=index;const e=searches[index];$('welcome').hidden=true;$('conversation').hidden=false;$('user-message').textContent=e.request;status.className='status'+(e.error?' error':'');status.textContent=e.error||e.elapsed||'';render(e.items||[]);if(e.error){empty.hidden=false;empty.textContent='Your search could not be completed. You can try again below.';}input.value=e.error?e.request:'';$('scroll-area').scrollTop=0;}
+function updateComposer(){
+  const running=current?.state==='running',finished=current?.state==='finished';
+  form.hidden=running||finished;
+  input.disabled=form.hidden;
+  button.disabled=form.hidden;
+  controls.hidden=!form.hidden;
+  action.textContent=running?'Cancel search':'Clear search results';
+  hint.textContent=running?'Finding and reviewing papers…':'Search finished.';
+}
+function clearDisplay(){
+  papers.replaceChildren();
+  empty.hidden=true;
+  empty.textContent='';
+  $('result-count').textContent='';
+  $('user-message').textContent='';
+  status.className='status';
+  status.textContent='';
+  results.setAttribute('aria-busy','false');
+}
+function resetSearch(request=''){
+  current=null;
+  clearDisplay();
+  $('welcome').hidden=false;
+  $('conversation').hidden=true;
+  input.value=request;
+  updateComposer();
+  $('scroll-area').scrollTop=0;
+  input.focus();
+}
+function showCancellationErrors(){
+  const failures=[...cancellations.values()].filter(search=>search.cancelError);
+  const feedback=$('cancel-feedback'),hadFocus=feedback.contains(document.activeElement);
+  feedback.hidden=failures.length===0;
+  $('cancel-error').textContent=failures.length
+    ?`The previous search could not be cancelled: ${failures[0].cancelError}`:'';
+  if(feedback.hidden&&hadFocus)(form.hidden?action:input).focus();
+}
+async function requestCancellation(search){
+  if(search.cancelling)return;
+  search.cancelling=true;
+  search.cancelError='';
+  cancellations.set(search.id,search);
+  showCancellationErrors();
+  try{
+    const response=await fetch('/api/recommend/cancel',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({search_id:search.id}),signal:AbortSignal.timeout(10000)
+    });
+    const result=await response.json();
+    if(!response.ok)throw new Error(result.error||'Please try again.');
+    if(result.status!=='cancelling')throw new Error('The server returned an unexpected result.');
+    cancellations.delete(search.id);
+  }catch(error){
+    search.cancelError=error.message||'Unable to reach the server.';
+  }finally{
+    search.cancelling=false;
+    showCancellationErrors();
+  }
+}
+action.addEventListener('click',()=>{
+  const search=current;
+  if(!search)return;
+  if(search.state==='running'){
+    clearInterval(search.timer);
+    resetSearch(search.request);
+    search.controller.abort();
+    void requestCancellation(search);
+  }else if(search.state==='finished')resetSearch();
+});
+$('retry-cancel').addEventListener('click',()=>{
+  for(const search of cancellations.values()){
+    if(search.cancelError)void requestCancellation(search);
+  }
+});
 document.querySelectorAll('.suggestion').forEach(b=>b.onclick=()=>{input.value=b.dataset.query;input.focus();});
-input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();if(!running)form.requestSubmit();}});
-form.addEventListener('submit',async e=>{e.preventDefault();if(running)return;const request=input.value.trim();if(!request){input.focus();return;}input.value='';running=true;button.disabled=true;input.disabled=true;$('welcome').hidden=true;$('conversation').hidden=false;$('user-message').textContent=request;papers.replaceChildren();empty.hidden=true;$('result-count').textContent='';results.setAttribute('aria-busy','true');status.className='status loading';status.textContent='Finding and reviewing papers…';searches.splice(0,searches.length,{request,items:[]});current=0;$('scroll-area').scrollTop=0;const started=performance.now();const timer=setInterval(()=>status.textContent=`Finding and reviewing papers… ${Math.floor((performance.now()-started)/1000)}s`,1000);try{const response=await fetch('/api/recommend',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({request})});const result=await response.json();if(!response.ok)throw new Error(result.error||'Search failed. Please try again.');if(!Array.isArray(result.recommendations))throw new Error('The server returned an unexpected result.');searches[0].items=result.recommendations;searches[0].elapsed=`Finished in ${((performance.now()-started)/1000).toFixed(1)}s`;input.value='';}catch(error){searches[0].error=error.message||'Unable to reach the server.';}finally{clearInterval(timer);running=false;button.disabled=false;input.disabled=false;results.setAttribute('aria-busy','false');showHistory(0);}});
+input.addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){
+    e.preventDefault();
+    if(!form.hidden)form.requestSubmit();
+  }
+});
+form.addEventListener('submit',async e=>{
+  e.preventDefault();
+  if(form.hidden)return;
+  const request=input.value.trim();
+  if(!request){input.focus();return;}
+  const search={id:crypto.randomUUID(),request,state:'running',
+    controller:new AbortController(),started:performance.now(),timer:null};
+  current=search;
+  clearDisplay();
+  input.value='';
+  $('welcome').hidden=true;
+  $('conversation').hidden=false;
+  $('user-message').textContent=request;
+  results.setAttribute('aria-busy','true');
+  status.className='status loading';
+  status.textContent='Finding and reviewing papers…';
+  updateComposer();
+  action.focus();
+  $('scroll-area').scrollTop=0;
+  search.timer=setInterval(()=>{
+    if(current===search&&search.state==='running')
+      status.textContent=`Finding and reviewing papers… ${Math.floor((performance.now()-search.started)/1000)}s`;
+  },1000);
+  try{
+    const response=await fetch('/api/recommend',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({request,search_id:search.id}),signal:search.controller.signal
+    });
+    const result=await response.json();
+    if(current!==search)return;
+    if(!response.ok)throw new Error(result.error||'Search failed. Please try again.');
+    if(!Array.isArray(result.recommendations))throw new Error('The server returned an unexpected result.');
+    search.state='finished';
+    status.className='status';
+    status.textContent=`Finished in ${((performance.now()-search.started)/1000).toFixed(1)}s`;
+    render(result.recommendations);
+    updateComposer();
+  }catch(error){
+    if(current!==search)return;
+    search.state='failed';
+    status.className='status error';
+    status.textContent=error.message||'Unable to reach the server.';
+    input.value=search.request;
+    updateComposer();
+    input.focus();
+  }finally{
+    clearInterval(search.timer);
+    if(current===search)results.setAttribute('aria-busy','false');
+  }
+});
 </script>
 </body>
 </html>

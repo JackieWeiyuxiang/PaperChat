@@ -3,6 +3,7 @@
 from functools import partial
 from typing import Protocol
 
+from arxiv_paper_recommend.common.cancellation import check_cancelled
 from arxiv_paper_recommend.common.lifecycle import ManagedResource
 from arxiv_paper_recommend.common.validation import (
 	validate_integer,
@@ -129,7 +130,10 @@ class SearchEngine(ManagedResource):
 				dense_semantic_weight=dense_semantic_weight,
 				fusion_weight=fusion_weight,
 			)
-		return handler(request, limit, max_terms=max_terms, max_queries=max_queries)
+		check_cancelled()
+		results = handler(request, limit, max_terms=max_terms, max_queries=max_queries)
+		check_cancelled()
+		return results
 
 	@staticmethod
 	def _validate_max_terms(max_terms: int) -> None:
@@ -153,6 +157,7 @@ class SearchEngine(ManagedResource):
 		generator = self._get_query_generator()
 		retriever = self._get_sparse_retriever()
 		terms = generator.generate_terms(request, max_terms=max_terms)
+		check_cancelled()
 		return retriever.search(terms, limit=limit, title_weight=title_weight)
 
 	def _search_dense(
@@ -175,6 +180,7 @@ class SearchEngine(ManagedResource):
 		else:
 			query = generator.generate_queries(request, max_queries=1)[0]
 			recall_queries = None
+		check_cancelled()
 		if facet_coverage:
 			return retriever.search(query, limit=limit, recall_queries=recall_queries)
 		# Explicit baseline methods retain their algorithms on the shared FC instance.
@@ -216,6 +222,7 @@ class SearchEngine(ManagedResource):
 			inputs = generator.generate(
 				request, max_terms=max_terms, max_queries=max_queries
 			)
+			check_cancelled()
 			if isinstance(retriever, (HRRFRetriever, HPRFRetriever)):
 				return retriever.search(
 					inputs.terms,
@@ -234,19 +241,25 @@ class SearchEngine(ManagedResource):
 			)
 
 	def _get_query_generator(self) -> QueryGenerator:
+		check_cancelled()
 		if self.query_generator is None:
 			self.query_generator = QueryGenerator()
 			self._resources.callback(self.query_generator.close)
+		check_cancelled()
 		return self.query_generator
 
 	def _get_sparse_retriever(self) -> TitleWeightedBM25Retriever:
+		check_cancelled()
 		if self.sparse_retriever is None:
 			self.sparse_retriever = TitleWeightedBM25Retriever()
 			self._resources.callback(self.sparse_retriever.close)
+		check_cancelled()
 		return self.sparse_retriever
 
 	def _get_dense_retriever(self) -> MultiQueryHNSWRetriever:
+		check_cancelled()
 		if self.dense_retriever is None:
 			self.dense_retriever = FCHNSWRetriever()
 			self._resources.callback(self.dense_retriever.close)
+		check_cancelled()
 		return self.dense_retriever

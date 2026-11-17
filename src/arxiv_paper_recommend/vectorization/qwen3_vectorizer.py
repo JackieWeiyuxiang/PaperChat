@@ -5,6 +5,8 @@ from pathlib import Path
 import numpy as np
 from numpy.typing import NDArray
 
+from arxiv_paper_recommend.common.cancellation import check_cancelled
+
 DEFAULT_MODEL = "Qwen/Qwen3-Embedding-0.6B"
 DEFAULT_REVISION = "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3"
 DEFAULT_QUERY_INSTRUCTION = (
@@ -162,6 +164,7 @@ class Qwen3Vectorizer:
 
 	def _encode(self, texts: str | list[str], *, is_query: bool) -> NDArray[np.float32]:
 		"""Encode distinct texts in length-grouped batches, restoring input order."""
+		check_cancelled()
 		single = isinstance(texts, str)
 		if not single and not isinstance(texts, list):
 			raise TypeError("Texts must be a string or a list of strings.")
@@ -186,6 +189,7 @@ class Qwen3Vectorizer:
 		vectors = np.empty((len(unique_inputs), EMBEDDING_DIMENSION), dtype=np.float32)
 		with self._torch.inference_mode():
 			for start in range(0, len(order), self.batch_size):
+				check_cancelled()
 				batch_indices = order[start : start + self.batch_size]
 				batch_texts = [unique_inputs[index] for index in batch_indices]
 				if is_query:
@@ -200,12 +204,14 @@ class Qwen3Vectorizer:
 					max_length=self.max_length,
 					return_tensors="pt",
 				).to(self.device)
+				check_cancelled()
 				outputs = self.model(**batch, use_cache=False)
 				# The tokenizer uses left padding, so the final token is valid.
 				embeddings = outputs.last_hidden_state[:, -1].float()
 				embeddings = self._torch.nn.functional.normalize(embeddings, p=2, dim=1)
 				del outputs
 				vectors[batch_indices] = embeddings.cpu().numpy()
+				check_cancelled()
 
 		if single:
 			return vectors[0]

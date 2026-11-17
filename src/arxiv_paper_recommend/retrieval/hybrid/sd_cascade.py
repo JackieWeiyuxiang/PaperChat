@@ -4,6 +4,8 @@ from collections.abc import Sequence
 from dataclasses import replace
 from math import ceil, sqrt
 
+from arxiv_paper_recommend.common.cancellation import check_cancelled
+
 from .._ranking import rank_ids
 from ..constants import DEFAULT_RESULT_LIMIT
 from ..innovation import FCHNSWRetriever
@@ -29,14 +31,17 @@ class SDCascadeRetriever(HybridRetriever):
 		Unavailable scores are excluded; equal scores use ascending document ID.
 		"""
 		query_texts = self._validate_inputs(query, limit, recall_queries)
+		check_cancelled()
 		candidate_limit = max(
 			1, ceil(sqrt(limit * self.sparse_retriever.count_documents()))
 		)
+		check_cancelled()
 		sparse_results = self.sparse_retriever.search(
 			terms,
 			limit=candidate_limit,
 			title_weight=title_weight,
 		)
+		check_cancelled()
 		candidates = {result.document_id: result for result in sparse_results}
 		if not candidates:
 			return []
@@ -48,6 +53,7 @@ class SDCascadeRetriever(HybridRetriever):
 			)
 		else:
 			dense_scores = self.dense_retriever.score(query, document_ids)
+		check_cancelled()
 		scored_ids = [
 			document_id
 			for document_id in document_ids

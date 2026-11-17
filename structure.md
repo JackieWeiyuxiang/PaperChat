@@ -28,6 +28,7 @@ arxiv_paper_recommend/
     ├── pipeline.py                # SD Cascade + 证据生成的统一 Python API
     ├── config.py                  # 默认路径、按需读取 LLMSettings
     ├── common/
+    │   ├── cancellation.py        # 请求上下文、协作取消信号及可中断退避
     │   ├── lifecycle.py
     │   └── validation.py
     ├── llm.py                     # 共享结构化生成及客户端所有权
@@ -61,7 +62,9 @@ arxiv_paper_recommend/
     │   └── innovation/
     │       ├── models.py          # 统一结果模型的兼容名称
     │       └── evidence_generator.py # 仅依据标注证据解释判断的提示词
-    └── web/                       # 规划占位
+    └── web/                       # 本地查询界面与 HTTP 适配
+        ├── __main__.py            # 单工作线程、请求登记与取消端点
+        └── index.html             # 输入/搜索/结果切换、推荐与引用展示
 ```
 
 各包包含相应的 `__init__.py`。复数形式的 `experiments/` 保存纳入 Git 的实验代码及 `experiments/results/` 中的检索代理实验材料。生成实验默认输出保存在单数形式的本地 `experiment/generation/`，与 `data/statistics.md` 一同被 Git 忽略，不能作为仓库已有正式评估结果的依据。
@@ -70,7 +73,7 @@ arxiv_paper_recommend/
 
 | 模块 | 职责 | 依赖边界 |
 | --- | --- | --- |
-| `common` | 资源所有权、上下文管理、基本输入与有限权重校验 | 仅依赖标准库 |
+| `common` | 资源所有权、上下文管理、基本输入与有限权重校验、请求级协作取消 | 仅依赖标准库；取消上下文不承担资源关闭职责 |
 | `config` | 默认数据路径、构造时读取 LLM 配置 | 导入时不读取 `.env`、不创建客户端 |
 | `llm` | 共享结构化调用、按调用设置 reasoning 与重试上限、统一网络/API、解析与业务校验预算、错误反馈与客户端关闭 | 默认最多重试 3 次、共 4 次请求，统一查询生成覆盖为 5 次重试；依赖 `common`、`config`，关闭 SDK 重试，不包含业务提示词 |
 | `pipeline` | 校验研究需求与数量，串联 SD Cascade 检索和证据生成，返回 JSON 可序列化字典 | 通过 `SearchEngine` 和 `EvidenceGroundedRecommendationGenerator` 公开接口编排；延迟创建、复用并仅关闭自建组件，不实现排名或引用校验 |
@@ -89,7 +92,7 @@ arxiv_paper_recommend/
 | `experiments/results` | 保存旧版 BM25、HNSW、HRRF、FC-HRRF 的输入、结果与报告 | 旧脚本已删除；主题代理标签不能作为当前 HPRF 或人工相关性评估结论 |
 | `experiments/generation` | 固定检索候选导出、基础与证据生成的配对运行、状态与耗时记录 | 通过公开 API 调用检索和生成；不实现人工标注或质量指标汇总 |
 | `recommendation.citations` | 保留完整引用扩展边界 | 当前为空包 |
-| `web` | 本地 HTML 查询界面与 HTTP 适配器 | `__main__.py` 在专用线程调用 pipeline；`index.html` 展示推荐与引用，不复制检索或生成逻辑 |
+| `web` | 本地 HTML 查询界面、HTTP 适配器、请求登记与取消 | `__main__.py` 在专用线程复用 pipeline，通过状态锁管理任务和最近 256 个终态；`index.html` 管理输入/搜索/结果切换，不复制检索或生成逻辑 |
 
 `Retriever` 统一稀疏／稠密的搜索与评分契约；`HNSWRetriever.raw_score()` 提供指定 ID 的精确内积，`MultiQueryHNSWRetriever.raw_recall()` 提供完整多查询召回并集及主查询精确分数。原 HNSW 的 `score()`、多查询 HNSW 的 `recall()` 分别委托这两个原始入口，多查询 `search()` 每分面召回 `ceil(limit * sqrt(m))` 篇后按请求数量截取并使用原始内积，`m` 为去重后的分面数。`FCHNSWRetriever.search()`、`score()`、`recall()` 统一使用主查询原始内积与分面非负内积几何平均的加权分数，分数不依赖候选集合；`recall()` 保留完整并集，`search()` 默认每分面深度同为 `ceil(limit * sqrt(m))`，显式 `candidate_limit` 直接覆盖深度，独立 dense 无 100 条上限。`recall()`、`raw_recall()` 的 `limit` 直接表示每分面深度，不再次缩放。`HybridRetriever` 独立定义混合搜索，不提供单独评分接口。共享限值位于 `retrieval.constants`，混合算法专用预算位于 `retrieval.hybrid.constants`，排序、排名百分位与 RRF 位于 `_ranking`，原始评分缓存位于 `_scoring`，FC-HNSW 原始覆盖评分位于 `innovation._facet_coverage`，权重校验位于 `common.validation`，缓存仅限单次调用。
 
@@ -193,3 +196,7 @@ vectors.npz + documents.db ── IndexBuilder ──> documents.faiss
 - 文件使用 snake_case，类使用 PascalCase；Python 注释与文档字符串以清晰英文为主，使用文档以中文为主；编辑后执行 `ruff format`。
 
 本地 UI 入口：`python -m arxiv_paper_recommend.web`。浏览器通过 `POST /api/recommend` 提交 request，专用线程持有并复用 `PaperRecommender`，确保 SQLite 连接在创建线程使用。页面由 `web/index.html` 提供，引用标记仅用于排版，所有模型文本通过 textContent 渲染。
+
+UI 为每次搜索生成独立 UUID，通过可选 `search_id` 字段随推荐请求发送；`POST /api/recommend/cancel` 按该标识登记取消并返回 202。登记、完成和取消共用状态锁，提前到达的取消也会记录；取消不会作用于其他请求。搜索中隐藏输入框并提供取消按钮，成功后提供清空按钮，失败则恢复原搜索词。旧响应和计时器按请求对象隔离，不能覆盖新的界面状态。
+
+`common.cancellation` 以 `ContextVar` 绑定当前请求的 `CancellationToken`，通过独立 `SearchCancelled` 异常退出流程；无上下文时检查为空操作，现有 Python 公开方法签名不变。pipeline、查询生成前后、SD Cascade 的召回与评分之间、向量编码批次之间及推荐排序边界检查取消；共享 LLM 生成器同时在调用返回、报错和重试前检查，退避等待可由信号唤醒。逐篇评估每个任务独立复制上下文并共享令牌，取消后撤销未开始任务，等待在途调用退出后才释放服务占用；不返回部分结果，也不把取消记录为单篇失败。搜索器和模型继续按需初始化并缓存，取消期间完成的初始化仍保留，资源仅在服务关闭时释放。

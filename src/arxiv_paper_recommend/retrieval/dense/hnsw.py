@@ -8,6 +8,7 @@ import faiss
 import numpy as np
 from numpy.typing import NDArray
 
+from arxiv_paper_recommend.common.cancellation import check_cancelled
 from arxiv_paper_recommend.common.validation import (
 	normalize_queries,
 	validate_integer,
@@ -155,14 +156,18 @@ class HNSWRetriever(Retriever[str]):
 
 	def _prepare_queries(self, queries: list[str]) -> NDArray[np.float32]:
 		"""Copy before in-place normalization, protecting injected vectorizer output."""
+		check_cancelled()
 		if self.vectorizer is None:
 			self.vectorizer = Qwen3Vectorizer()
+		# Keep the initialized model if cancellation arrived during loading.
+		check_cancelled()
 		vectors = np.array(
 			self.vectorizer.encode_queries(queries),
 			dtype=np.float32,
 			order="C",
 			copy=True,
 		)
+		check_cancelled()
 		if vectors.shape != (len(queries), self.index.d):
 			raise ValueError(
 				f"Query vectors must have shape ({len(queries)}, {self.index.d})."

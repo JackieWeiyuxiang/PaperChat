@@ -2,6 +2,7 @@
 
 from dataclasses import asdict
 
+from .common.cancellation import check_cancelled
 from .common.lifecycle import ManagedResource
 from .common.validation import validate_integer, validate_text
 from .recommendation.base import MAX_GENERATION_CANDIDATES, MAX_RECOMMENDATIONS
@@ -58,17 +59,24 @@ class PaperRecommender(ManagedResource):
 		)
 		validate_integer(max_queries, "max_queries")
 
-		papers = self._get_search_engine().search(
+		check_cancelled()
+		search_engine = self._get_search_engine()
+		check_cancelled()
+		papers = search_engine.search(
 			request,
 			method="SD_CASCADE",
 			limit=candidate_limit,
 			max_terms=max_terms,
 			max_queries=max_queries,
 		)
+		check_cancelled()
 		if not papers:
 			return {"request": request, "recommendations": []}
 
-		recommendations = self._get_generator().generate(request, papers, limit=limit)
+		generator = self._get_generator()
+		check_cancelled()
+		recommendations = generator.generate(request, papers, limit=limit)
+		check_cancelled()
 		return {
 			"request": request,
 			"recommendations": [asdict(item) for item in recommendations],

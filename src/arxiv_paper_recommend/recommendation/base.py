@@ -3,11 +3,13 @@
 import json
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from json import JSONDecodeError
 
 from openai import OpenAIError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from arxiv_paper_recommend.common.cancellation import SearchCancelled, check_cancelled
 from arxiv_paper_recommend.common.validation import validate_integer, validate_text
 from arxiv_paper_recommend.llm import StructuredGenerator
 from arxiv_paper_recommend.retrieval import SearchResult
@@ -83,6 +85,7 @@ class BaseRecommendationGenerator(StructuredGenerator, ABC):
 		for index, paper in enumerate(papers):
 			if not isinstance(paper, SearchResult):
 				raise TypeError(f"Paper at index {index} must be a SearchResult.")
+		check_cancelled()
 		if not papers:
 			return []
 
@@ -91,12 +94,18 @@ class BaseRecommendationGenerator(StructuredGenerator, ABC):
 			papers_by_doc_id.setdefault(paper.arxiv_id, paper)
 		candidates = list(papers_by_doc_id.values())
 		approved: dict[str, tuple[SearchResult, str]] = {}
-		with ThreadPoolExecutor(max_workers=MAX_SCREENING_WORKERS) as executor:
-			pending = [
-				executor.submit(self._assess_paper, request, paper)
-				for paper in candidates
-			]
+		executor = ThreadPoolExecutor(max_workers=MAX_SCREENING_WORKERS)
+		pending = []
+		try:
+			for paper in candidates:
+				check_cancelled()
+				pending.append(
+					executor.submit(
+						copy_context().run, self._assess_paper, request, paper
+					)
+				)
 			for paper, future in zip(candidates, pending, strict=True):
+				check_cancelled()
 				try:
 					assessment = future.result()
 				except (
@@ -105,14 +114,25 @@ class BaseRecommendationGenerator(StructuredGenerator, ABC):
 					JSONDecodeError,
 					RuntimeError,
 				) as exc:
+					check_cancelled()
 					print(
 						f"Paper assessment failed for {paper.arxiv_id}: "
 						f"{type(exc).__name__}: {exc}"
 					)
 					continue
+				check_cancelled()
 				if assessment.recommended:
 					approved[paper.arxiv_id] = (paper, assessment.reason)
+		except SearchCancelled:
+			# Cancel queued assessments without interrupting calls using shared clients.
+			for future in pending:
+				future.cancel()
+			raise
+		finally:
+			# In-flight calls must exit before the service can reuse this generator.
+			executor.shutdown(wait=True)
 
+		check_cancelled()
 		if not approved:
 			return []
 		if len(approved) == 1:
@@ -145,6 +165,7 @@ class BaseRecommendationGenerator(StructuredGenerator, ABC):
 				seen_doc_ids.add(doc_id)
 			return parsed
 
+		check_cancelled()
 		parsed = self._generate(
 			json.dumps(payload, ensure_ascii=False),
 			self.ranking_instructions,
@@ -152,6 +173,7 @@ class BaseRecommendationGenerator(StructuredGenerator, ABC):
 			reasoning_effort="high",
 			result_validator=validate_ranking,
 		)
+		check_cancelled()
 
 		return [
 			PaperRecommendation(
@@ -171,6 +193,7 @@ class BaseRecommendationGenerator(StructuredGenerator, ABC):
 
 	def _assess_paper(self, request: str, paper: SearchResult) -> _PaperAssessment:
 		"""Bind an independent structured assessment to its original candidate."""
+		check_cancelled()
 		payload = json.dumps(
 			{"request": request, "paper": self._paper_payload(paper)},
 			ensure_ascii=False,

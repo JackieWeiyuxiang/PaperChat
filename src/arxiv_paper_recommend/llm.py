@@ -1,6 +1,5 @@
 """Shared structured generation and explicit LLM client ownership."""
 
-import time
 from collections.abc import Callable
 from json import JSONDecodeError
 from typing import Literal
@@ -8,6 +7,7 @@ from typing import Literal
 from openai import APIResponseValidationError, OpenAI, OpenAIError, omit
 from pydantic import BaseModel, ValidationError
 
+from .common.cancellation import cancellable_wait, check_cancelled
 from .common.lifecycle import ManagedResource
 from .common.validation import validate_integer
 from .config import LLMSettings
@@ -55,6 +55,7 @@ class StructuredGenerator(ManagedResource):
 		client = self.client.with_options(max_retries=0)
 		current_instructions = instructions
 		for attempt in range(max_retries + 1):
+			check_cancelled()
 			try:
 				response = client.responses.parse(
 					model=self.model,
@@ -69,22 +70,30 @@ class StructuredGenerator(ManagedResource):
 				JSONDecodeError,
 				APIResponseValidationError,
 			) as exc:
+				check_cancelled()
 				if attempt == max_retries:
 					raise
 				current_instructions = self._validation_instructions(instructions, exc)
 				continue
 			except OpenAIError:
+				check_cancelled()
 				if attempt == max_retries:
 					raise
-				time.sleep(2**attempt)
+				cancellable_wait(2**attempt)
 				continue
 
+			check_cancelled()
 			try:
 				parsed = response.output_parsed
 				if parsed is None:
 					raise RuntimeError("Generation did not return a structured result.")
-				return parsed if result_validator is None else result_validator(parsed)
+				result = (
+					parsed if result_validator is None else result_validator(parsed)
+				)
+				check_cancelled()
+				return result
 			except (ValidationError, RuntimeError) as exc:
+				check_cancelled()
 				if attempt == max_retries:
 					raise
 				current_instructions = self._validation_instructions(instructions, exc)
